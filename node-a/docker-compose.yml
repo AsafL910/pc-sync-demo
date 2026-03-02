@@ -1,0 +1,133 @@
+networks:
+  mesh-net:
+    external: true
+
+services:
+  # =============================================
+  # NODE A
+  # =============================================
+
+  postgres_a:
+    build: ../postgres
+    container_name: postgres_a
+    environment:
+      POSTGRES_USER: mesh
+      POSTGRES_PASSWORD: mesh_pass
+      POSTGRES_DB: meshdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata_a:/var/lib/postgresql/data
+    networks:
+      - mesh-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mesh -d meshdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nats_a:
+    image: nats:2.10-alpine
+    container_name: nats_a
+    command: ["-c", "/etc/nats/nats.conf"]
+    volumes:
+      - ../nats/nats-a.conf:/etc/nats/nats.conf:ro
+      - nats_a_data:/data/jetstream
+    ports:
+      - "4222:4222"
+      - "7422:7422"
+      - "8222:8222"
+      - "8081:8080"
+    networks:
+      - mesh-net
+    restart: unless-stopped
+
+  db_sync_a:
+    build: ../backend
+    container_name: db_sync_a
+    command: ["node", "src/db-sync-service.js"]
+    environment:
+      NODE_NAME: node_a
+      DB_HOST: postgres_a
+      DB_PORT: 5432
+      DB_USER: mesh
+      DB_PASS: mesh_pass
+      DB_NAME: meshdb
+      PEER_DB_HOST: postgres_b
+      PEER_DB_PORT: 5432
+      PEER_NODE_NAME: node_b
+      NATS_URL: nats://nats_a:4222
+      PORT: 3000
+    ports:
+      - "3001:3000"
+    depends_on:
+      postgres_a:
+        condition: service_healthy
+    networks:
+      - mesh-net
+    restart: unless-stopped
+
+  nats_pubsub_a:
+    build: ../backend
+    container_name: nats_pubsub_a
+    command: ["node", "src/nats-pubsub-service.js"]
+    environment:
+      NODE_NAME: node_a
+      NATS_URL: nats://nats_a:4222
+      PORT: 3100
+    ports:
+      - "3101:3100"
+    depends_on:
+      - nats_a
+    networks:
+      - mesh-net
+    restart: unless-stopped
+
+  jetstream_a:
+    build: ../backend
+    container_name: jetstream_a
+    command: ["node", "src/jetstream-service.js"]
+    environment:
+      NODE_NAME: node_a
+      NATS_URL: nats://nats_a:4222
+      PEER_NODE_NAME: node_b
+      PORT: 3200
+    ports:
+      - "3201:3200"
+    depends_on:
+      - nats_a
+    networks:
+      - mesh-net
+    restart: unless-stopped
+
+  gps_sim_a:
+    build: ../backend
+    container_name: gps_sim_a
+    command: ["node", "src/gps-simulator.js"]
+    environment:
+      NODE_NAME: node_a
+      NATS_URL: nats://nats_a:4222
+    depends_on:
+      - nats_a
+    networks:
+      - mesh-net
+    restart: unless-stopped
+
+  frontend_a:
+    build: ../frontend
+    container_name: frontend_a
+    environment:
+      VITE_DB_SYNC_URL: http://localhost:3001
+      VITE_NATS_URL: ws://localhost:8081
+      VITE_NODE_NAME: Node A
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    networks:
+      - mesh-net
+
+volumes:
+  pgdata_a:
+  nats_a_data:

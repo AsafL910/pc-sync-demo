@@ -1,0 +1,20 @@
+{
+  "name": "mesh-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Distributed mesh POC backend services",
+  "scripts": {
+    "db-sync": "node src/db-sync-service.js",
+    "nats-pubsub": "node src/nats-pubsub-service.js",
+    "jetstream": "node src/jetstream-service.js",
+    "gps-sim": "node src/gps-simulator.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "nats": "^2.19.0",
+    "pg": "^8.12.0",
+    "uuid": "^9.0.1",
+    "ws": "^8.16.0",
+    "cors": "^2.8.5"
+  }
+}

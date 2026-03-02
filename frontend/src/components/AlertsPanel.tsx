@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { StringCodec, AckPolicy, DeliverPolicy } from 'nats.ws';
+import { StringCodec, AckPolicy, DeliverPolicy, ConsumerMessages } from 'nats.ws';
 import { StatusDot } from './StatusDot';
+import { AlertsPanelProps, SafetyAlert } from '../types/nats';
 
 const NODE_NAME = import.meta.env.VITE_NODE_NAME || 'Node A';
 const NODE_DOMAIN = NODE_NAME.toLowerCase().replace(' ', '_');
@@ -8,16 +9,15 @@ const PEER_DOMAIN = NODE_DOMAIN === 'node_a' ? 'node_b' : 'node_a';
 
 const sc = StringCodec();
 
-// ---- Safety Alerts Panel ----
-export function AlertsPanel({ nc }) {
-    const [alerts, setAlerts] = useState([]);
-    const [jsConnected, setJsConnected] = useState(false);
+export const AlertsPanel = ({ nc }: AlertsPanelProps) => {
+    const [alerts, setAlerts] = useState<SafetyAlert[]>([]);
+    const [jsConnected, setJsConnected] = useState<boolean>(false);
 
     useEffect(() => {
         if (!nc) return;
-        const subs = [];
+        const subs: ConsumerMessages[] = [];
 
-        async function setupJetStream() {
+        const setupJetStream = async () => {
             try {
                 const jsm = await nc.jetstreamManager({ domain: NODE_DOMAIN });
                 const js = nc.jetstream({ domain: NODE_DOMAIN });
@@ -34,10 +34,10 @@ export function AlertsPanel({ nc }) {
                         const iter = await consumer.consume();
                         console.log(`[JetStream] Pull Consumer created for stream: ${streamName} (Consumer: ${ci.name})`);
 
-                        (async () => {
+                        const processMessages = async () => {
                             for await (const m of iter) {
                                 try {
-                                    const data = JSON.parse(sc.decode(m.data));
+                                    const data = JSON.parse(sc.decode(m.data)) as SafetyAlert;
                                     setAlerts((prev) => {
                                         if (prev.some(a => a.timestamp === data.timestamp && a.node === data.node)) return prev;
                                         return [{ ...data, seq: m.seq }, ...prev].slice(0, 50);
@@ -45,10 +45,11 @@ export function AlertsPanel({ nc }) {
                                     m.ack();
                                 } catch (err) { m.ack(); }
                             }
-                        })();
+                        };
+                        processMessages();
 
                         subs.push(iter);
-                    } catch (err) {
+                    } catch (err: any) {
                         console.warn(`[JetStream] Consumer creation failed for ${streamName}:`, err.message);
                     }
                 }
@@ -56,14 +57,17 @@ export function AlertsPanel({ nc }) {
             } catch (err) {
                 console.error("[JetStream] Manager setup error:", err);
             }
-        }
+        };
 
         setupJetStream();
+
         return () => {
             subs.forEach(s => {
-                if (s.unsubscribe) s.unsubscribe();
-                else if (s.close) s.close();
-                else if (s.stop) s.stop();
+                if (s.close) {
+                    s.close();
+                } else if ((s as any).unsubscribe) {
+                    (s as any).unsubscribe();
+                }
             });
         };
     }, [nc]);
@@ -105,4 +109,4 @@ export function AlertsPanel({ nc }) {
             </div>
         </div>
     );
-}
+};

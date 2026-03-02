@@ -1,25 +1,29 @@
 import { useState, useEffect } from 'react';
 import { StringCodec } from 'nats.ws';
 import { StatusDot } from './StatusDot';
+import { GPSPanelProps, GPSMessage } from '../types/nats';
 
 const sc = StringCodec();
 
-export function GPSPanel({ nc }) {
-    const [messages, setMessages] = useState([]);
+export const GPSPanel = ({ nc }: GPSPanelProps) => {
+    const [messages, setMessages] = useState<GPSMessage[]>([]);
     const maxMessages = 50;
 
     useEffect(() => {
         if (!nc) return;
         const sub = nc.subscribe('sensor.gps');
-        (async () => {
+        const processMessages = async () => {
             for await (const m of sub) {
                 try {
-                    const data = JSON.parse(sc.decode(m.data));
+                    const data = JSON.parse(sc.decode(m.data)) as GPSMessage;
                     setMessages((prev) => [{ ...data, node: data.node || 'unknown' }, ...prev].slice(0, maxMessages));
                 } catch (err) { /* ignore */ }
             }
-        })();
-        return () => sub.unsubscribe();
+        };
+        processMessages();
+        return () => {
+            sub.unsubscribe();
+        };
     }, [nc]);
 
     return (
@@ -57,4 +61,4 @@ export function GPSPanel({ nc }) {
             </div>
         </div>
     );
-}
+};

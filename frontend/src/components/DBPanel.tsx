@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect } from 'react';
+import { Relation } from '../types/nats';
 
 const DB_SYNC_URL = import.meta.env.VITE_DB_SYNC_URL || 'http://localhost:3001';
 
-export function DBPanel() {
-    const [relations, setRelations] = useState([]);
-    const [loading, setLoading] = useState(true);
+export const DBPanel = () => {
+    const [relations, setRelations] = useState<Relation[]>([]);
+    const [loading, setLoading] = useState<boolean>(true);
 
     const fetchRelations = useCallback(async () => {
         try {
@@ -71,4 +72,4 @@ export function DBPanel() {
             </div>
         </div>
     );
-}
+};

@@ -5,6 +5,7 @@ import { StatusDot } from './components/StatusDot';
 import { DBPanel } from './components/DBPanel';
 import { GPSPanel } from './components/GPSPanel';
 import { AlertsPanel } from './components/AlertsPanel';
+import { SafetyAlert } from './types/nats';
 
 const DB_SYNC_URL = import.meta.env.VITE_DB_SYNC_URL || 'http://localhost:3001';
 const NATS_URL = import.meta.env.VITE_NATS_URL || 'ws://localhost:8081';
@@ -13,11 +14,11 @@ const NODE_DOMAIN = NODE_NAME.toLowerCase().replace(' ', '_');
 
 const sc = StringCodec();
 
-export default function App() {
-    const [toast, setToast] = useState(null);
+const App = () => {
+    const [toast, setToast] = useState<string | null>(null);
     const { nc, connected } = useNATS();
 
-    const showToast = (msg, duration = 3000) => {
+    const showToast = (msg: string, duration: number = 3000) => {
         setToast(msg);
         setTimeout(() => setToast(null), duration);
     };
@@ -37,7 +38,7 @@ export default function App() {
                 }),
             });
             showToast(`⚡ Conflict triggered! relation_id=${relationId.slice(0, 8)}…`);
-        } catch (e) {
+        } catch (e: any) {
             showToast(`❌ Error: ${e.message}`);
         }
     };
@@ -55,7 +56,7 @@ export default function App() {
                 }),
             });
             showToast('✅ Relation inserted');
-        } catch (e) {
+        } catch (e: any) {
             showToast(`❌ Error: ${e.message}`);
         }
     };
@@ -64,7 +65,7 @@ export default function App() {
         if (!nc) return showToast('❌ NATS not connected');
         try {
             const js = nc.jetstream({ domain: NODE_DOMAIN });
-            const payload = {
+            const payload: SafetyAlert = {
                 node: NODE_DOMAIN,
                 type: 'manual',
                 severity: 'high',
@@ -74,7 +75,7 @@ export default function App() {
             const subject = `alert.safety.${payload.node}.manual`;
             await js.publish(subject, sc.encode(JSON.stringify(payload)));
             showToast('🚨 Safety alert published directly to Mesh');
-        } catch (e) {
+        } catch (e: any) {
             showToast(`❌ Error: ${e.message}`);
         }
     };
@@ -121,4 +122,6 @@ export default function App() {
             {toast && <div className="toast">{toast}</div>}
         </div>
     );
-}
+};
+
+export default App;

@@ -5,7 +5,7 @@ import { StatusDot } from './components/StatusDot';
 import { DBPanel } from './components/DBPanel';
 import { GPSPanel } from './components/GPSPanel';
 import { AlertsPanel } from './components/AlertsPanel';
-import { SafetyAlert } from './types/nats';
+import { SafetyAlert, AlertSeverity } from './types/nats';
 
 const DB_SYNC_URL = import.meta.env.VITE_DB_SYNC_URL || 'http://localhost:3001';
 const NATS_URL = import.meta.env.VITE_NATS_URL || 'ws://localhost:8081';
@@ -67,8 +67,8 @@ const App = () => {
             const js = nc.jetstream({ domain: NODE_DOMAIN });
             const payload: SafetyAlert = {
                 node: NODE_DOMAIN,
-                type: 'manual',
-                severity: 'high',
+                reservedType: 'manual',
+                severity: AlertSeverity.HIGH,
                 message: `Manual alert from ${NODE_NAME}`,
                 timestamp: new Date().toISOString(),
             };

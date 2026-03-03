@@ -1,0 +1,10 @@
+{
+  "name": "project",
+  "generator": {
+    "renderer": "react",
+    "supportedProtocols": []
+  },
+  "dependencies": {
+    "@asyncapi/generator-react-sdk": "^1.1.2"
+  }
+}

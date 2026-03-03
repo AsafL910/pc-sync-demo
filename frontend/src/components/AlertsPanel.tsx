@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { StringCodec, AckPolicy, DeliverPolicy, ConsumerMessages } from 'nats.ws';
+import { StringCodec, AckPolicy, DeliverPolicy, ConsumerMessages, JsMsg } from 'nats.ws';
 import { StatusDot } from './StatusDot';
 import { AlertsPanelProps, SafetyAlert } from '../types/nats';
 
@@ -36,14 +36,15 @@ export const AlertsPanel = ({ nc }: AlertsPanelProps) => {
 
                         const processMessages = async () => {
                             for await (const m of iter) {
+                                const msg = m as JsMsg;
                                 try {
-                                    const data = JSON.parse(sc.decode(m.data)) as SafetyAlert;
+                                    const data = JSON.parse(sc.decode(msg.data)) as SafetyAlert;
                                     setAlerts((prev) => {
                                         if (prev.some(a => a.timestamp === data.timestamp && a.node === data.node)) return prev;
-                                        return [{ ...data, seq: m.seq }, ...prev].slice(0, 50);
+                                        return [{ ...data, seq: msg.seq }, ...prev].slice(0, 50);
                                     });
-                                    m.ack();
-                                } catch (err) { m.ack(); }
+                                    msg.ack();
+                                } catch (err) { msg.ack(); }
                             }
                         };
                         processMessages();
@@ -62,13 +63,7 @@ export const AlertsPanel = ({ nc }: AlertsPanelProps) => {
         setupJetStream();
 
         return () => {
-            subs.forEach(s => {
-                if (s.close) {
-                    s.close();
-                } else if ((s as any).unsubscribe) {
-                    (s as any).unsubscribe();
-                }
-            });
+            subs.forEach(s => s.stop());
         };
     }, [nc]);
 
@@ -94,7 +89,7 @@ export const AlertsPanel = ({ nc }: AlertsPanelProps) => {
                         <div className="feed-item alert" key={i}>
                             <div className="feed-item-header">
                                 <span className="feed-item-source">
-                                    ⚠️ {m.type?.toUpperCase()} — {m.severity}
+                                    ⚠️ {m.reservedType?.toUpperCase()} — {m.severity}
                                 </span>
                                 <span className="feed-item-time">
                                     seq: {m.seq} | {m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : ''}

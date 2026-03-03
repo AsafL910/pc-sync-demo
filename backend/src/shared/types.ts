@@ -1,18 +1,8 @@
-export interface Alert {
-    node: string;
-    type: string;
-    severity: 'low' | 'medium' | 'high';
-    message: string;
-    data: Record<string, any>;
-    timestamp: string;
-}
+import GpsData from './generated/GpsData.js';
+import ReservedAlert from './generated/ReservedAlert.js';
+import AlertSeverity from './generated/AlertSeverity.js';
 
-export interface GPSData {
-    node: string;
-    lat: number;
-    lng: number;
-    timestamp: string;
-}
+export { GpsData, ReservedAlert, AlertSeverity };
 
 export interface MissionRelation {
     id?: string;

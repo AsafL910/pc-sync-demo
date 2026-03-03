@@ -1,0 +1,110 @@
+asyncapi: 3.1.0
+info:
+  title: Independent Nodes Mesh - NATS Contract
+  version: 1.0.0
+  description: >
+    Standardized message interfaces for the vehicle edge computing cluster.
+
+    Provides schema for real-time sensor data and JetStream-backed safety
+    alerts.
+operations:
+  sensorGpsSub:
+    action: receive
+    channel:
+      $ref: '#/channels/sensor.gps'
+    summary: Subscribe to real-time GPS coordinates.
+  safetyAlertSub:
+    action: receive
+    channel:
+      $ref: '#/channels/alert.safety.node'
+    summary: Receive safety alerts from any node in the mesh.
+channels:
+  sensor.gps:
+    address: sensor.gps
+    messages:
+      gpsData:
+        $ref: '#/components/messages/GPSData'
+    description: High-frequency GPS telemetry data.
+  alert.safety.node:
+    address: 'alert.safety.{nodeName}.{alertType}'
+    parameters:
+      nodeName:
+        description: 'The source node that generated the alert (e.g., node_a, node_b).'
+      alertType:
+        description: 'The type of safety event (e.g., collision, system_failure).'
+    messages:
+      safetyAlert:
+        $ref: '#/components/messages/Alert'
+    description: JetStream-backed safety alerts for critical status updates.
+components:
+  messages:
+    GPSData:
+      name: GPSData
+      title: GPS Coordinates
+      summary: Periodic GPS location update from a node.
+      payload:
+        $ref: '#/components/schemas/GPSData'
+    Alert:
+      name: Alert
+      title: Safety Alert
+      summary: Critical safety notification with severity level.
+      payload:
+        $ref: '#/components/schemas/Alert'
+  schemas:
+    GPSData:
+      type: object
+      properties:
+        node:
+          type: string
+          description: Name of the publishing node.
+        lat:
+          type: number
+          format: float
+          description: Latitude coordinate.
+        lng:
+          type: number
+          format: float
+          description: Longitude coordinate.
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp of data capture.
+      required:
+        - node
+        - lat
+        - lng
+        - timestamp
+    Alert:
+      type: object
+      properties:
+        node:
+          type: string
+          description: Name of the node that detected the event.
+        type:
+          type: string
+          description: 'Category of the alert (e.g., collision).'
+        severity:
+          $ref: '#/components/schemas/AlertSeverity'
+        message:
+          type: string
+          description: Human-readable description of the alert.
+        data:
+          type: object
+          description: Additional context-specific JSON metadata.
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp of the event.
+      required:
+        - node
+        - type
+        - severity
+        - message
+        - timestamp
+    AlertSeverity:
+      type: string
+      enum:
+        - low
+        - medium
+        - high
+      description: Criticality level for safety alerts.

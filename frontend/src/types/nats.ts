@@ -1,24 +1,20 @@
 import { NatsConnection } from 'nats.ws';
 export type { NatsConnection, JetStreamClient } from 'nats.ws';
 
+import GpsData from '../generated/GpsData';
+import ReservedAlert from '../generated/ReservedAlert';
+import AlertSeverity from '../generated/AlertSeverity';
+
+export type { GpsData, ReservedAlert };
+export { AlertSeverity };
+
 export interface BaseMessage {
     node: string;
     timestamp: string;
 }
 
-export interface GPSMessage extends BaseMessage {
-    lat: number;
-    lng: number;
-    speed: number;
-    timestamp: string;
-}
-
-export interface SafetyAlert {
-    node: string;
-    type: string;
-    severity: string;
-    message: string;
-    timestamp: string;
+export type GPSMessage = GpsData;
+export interface SafetyAlert extends ReservedAlert {
     seq?: number;
 }
 

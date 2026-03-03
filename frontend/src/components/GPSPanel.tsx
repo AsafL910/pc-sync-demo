@@ -53,7 +53,7 @@ export const GPSPanel = ({ nc }: GPSPanelProps) => {
                                 </span>
                             </div>
                             <div className="feed-item-body">
-                                lat: {m.lat}  lng: {m.lng}  speed: {m.speed} km/h
+                                lat: {m.lat} | lng: {m.lng}
                             </div>
                         </div>
                     ))

@@ -1,0 +1,14 @@
+{
+    "name": "mesh-poc",
+    "version": "1.0.0",
+    "description": "Distributed Mesh POC root workspace",
+    "scripts": {
+        "asyncapi:generate:backend": "npx @asyncapi/cli generate models typescript ./schema/asyncapi.yaml -o ./backend/src/shared/generated --tsModelType=interface",
+        "asyncapi:generate:frontend": "npx @asyncapi/cli generate models typescript ./schema/asyncapi.yaml -o ./frontend/src/generated --tsModelType=interface",
+        "asyncapi:generate": "npm run asyncapi:generate:backend && npm run asyncapi:generate:frontend",
+        "asyncapi:studio": "npx @asyncapi/cli start studio ./schema/asyncapi.yaml"
+    },
+    "devDependencies": {
+        "@asyncapi/cli": "^6.0.0"
+    }
+}

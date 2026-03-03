@@ -22,7 +22,28 @@ demo/
 └── nats/                   # NATS server configuration (Leaf nodes + Websocket)
 ```
 
-## Running the POC
+## Quick Start (Automated)
+
+### 1. Requirements
+Ensure you have the following installed:
+- [Docker & Docker Compose](https://docs.docker.com/get-docker/)
+- [Node.js](https://nodejs.org/) (optional, for AsyncAPI tooling)
+- [Bash](https://en.wikipedia.org/wiki/Bash_(Unix_shell)) (for scripts)
+
+### 2. Start the Mesh
+Run the following script to build and launch the entire cluster fresh:
+```bash
+chmod +x ./start-mesh.sh
+./start-mesh.sh
+```
+
+- **Node A Dashboard**: [http://localhost:5173](http://localhost:5173)
+- **Node B Dashboard**: [http://localhost:5174](http://localhost:5174)
+
+---
+
+## Manual Execution
+If you prefer to start components manually:
 
 1. **Start the Mesh Network**:
    ```bash
@@ -31,25 +52,46 @@ demo/
 
 2. **Start Node A**:
    ```bash
-   cd node-a
-   docker compose up -d
+   cd node-a && docker compose up -d
    ```
-   *Dashboard*: http://localhost:5173
 
 3. **Start Node B**:
    ```bash
-   cd node-b
-   docker compose up -d
+   cd node-b && docker compose up -d
    ```
-   *Dashboard*: http://localhost:5174
 
 ## Features
 - **Local DB State**: View synced database rows. Row insertions on one node appear on the other automatically.
 - **Live GPS Feed**: Native NATS pub/sub stream demonstrating low latency sensor telemetry.
 - **Safety Alerts (JetStream)**: Demonstrates mission-critical durable messaging. Generates alerts that are persisted and mirrored across the cluster. If you refresh the page or stop a node, JetStream ensures you receive all missed alerts when you reconnect.
 
-## Testing Resiliency
-You can use the automated test script to verify data sync and alert recovery capabilities:
+## NATS Contract (AsyncAPI)
+
+The messaging interface is formally documented using the [AsyncAPI](https://www.asyncapi.com/) standard.
+
+- **Schema File**: `./schema/asyncapi.yaml`
+
+### Offline GUI Preview
+1. **VS Code**: Install the official **AsyncAPI** extension and click the **"Preview"** icon in the editor tab.
+2. **CLI**: Use the root npm script (requires Node.js):
+   ```bash
+   npm run asyncapi:studio
+   ```
+
+### Code Generation
+
+To regenerate TypeScript models from the AsyncAPI schema:
+
+**All Models:**
 ```bash
-./test-resiliency.sh
+npm run asyncapi:generate
 ```
+
+**Individual Components:**
+```bash
+npm run asyncapi:generate:backend
+npm run asyncapi:generate:frontend
+```
+
+## Testing Resiliency
+...

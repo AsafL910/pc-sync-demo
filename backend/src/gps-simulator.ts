@@ -1,5 +1,5 @@
 import { connect, StringCodec, NatsConnection, JetStreamClient } from 'nats';
-import { Alert, GPSData } from './shared/types.js';
+import { ReservedAlert, GpsData, AlertSeverity } from './shared/types.js';
 
 const NODE_NAME = process.env.NODE_NAME || 'node_a';
 const NATS_URL = process.env.NATS_URL || 'nats://localhost:4222';
@@ -14,7 +14,7 @@ const BASE_COORDS: Record<string, { lat: number, lng: number }> = {
 const base = { ...(BASE_COORDS[NODE_NAME] || BASE_COORDS.node_a) };
 let heading = Math.random() * 360;
 
-function generateGPS(): GPSData {
+function generateGPS(): GpsData {
     heading += (Math.random() - 0.5) * 20;
     const speed = 30 + Math.random() * 80;
     const drift = 0.0001 * speed / 50;
@@ -57,12 +57,12 @@ async function start() {
         tickCount++;
 
         if (tickCount % 30 === 0) {
-            const alert: Alert = {
+            const alert: ReservedAlert = {
                 node: NODE_NAME,
-                type: 'collision',
-                severity: Math.random() > 0.5 ? 'high' : 'medium',
+                reservedType: 'collision',
+                severity: Math.random() > 0.5 ? AlertSeverity.HIGH : AlertSeverity.MEDIUM,
                 message: `Potential collision detected at (${gps.lat}, ${gps.lng})`,
-                data: { lat: gps.lat, lng: gps.lng },
+                data: { lat: gps.lat, lng: gps.lng } as any,
                 timestamp: new Date().toISOString(),
             };
             // Corrected subject to match service: alert.safety.${node}.${type}

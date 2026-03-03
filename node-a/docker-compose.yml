@@ -21,7 +21,7 @@ services:
     networks:
       - mesh-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mesh -d meshdb"]
+      test: [ "CMD-SHELL", "pg_isready -U mesh -d meshdb" ]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -29,7 +29,7 @@ services:
   nats_a:
     image: nats:2.10-alpine
     container_name: nats_a
-    command: ["-c", "/etc/nats/nats.conf"]
+    command: [ "-c", "/etc/nats/nats.conf" ]
     volumes:
       - ../nats/nats-a.conf:/etc/nats/nats.conf:ro
       - nats_a_data:/data/jetstream
@@ -42,10 +42,10 @@ services:
       - mesh-net
     restart: unless-stopped
 
-  db_sync_a:
+  mission_service_a:
     build: ../backend
-    container_name: db_sync_a
-    command: ["node", "src/db-sync-service.js"]
+    container_name: mission_service_a
+    command: [ "npm", "run", "mission-service" ]
     environment:
       NODE_NAME: node_a
       DB_HOST: postgres_a
@@ -67,10 +67,10 @@ services:
       - mesh-net
     restart: unless-stopped
 
-  nats_pubsub_a:
+  gps_service_a:
     build: ../backend
-    container_name: nats_pubsub_a
-    command: ["node", "src/nats-pubsub-service.js"]
+    container_name: gps_service_a
+    command: [ "npm", "run", "gps-service" ]
     environment:
       NODE_NAME: node_a
       NATS_URL: nats://nats_a:4222
@@ -83,10 +83,10 @@ services:
       - mesh-net
     restart: unless-stopped
 
-  jetstream_a:
+  alerts_service_a:
     build: ../backend
-    container_name: jetstream_a
-    command: ["node", "src/jetstream-service.js"]
+    container_name: alerts_service_a
+    command: [ "npm", "run", "alerts-service" ]
     environment:
       NODE_NAME: node_a
       NATS_URL: nats://nats_a:4222
@@ -103,7 +103,7 @@ services:
   gps_sim_a:
     build: ../backend
     container_name: gps_sim_a
-    command: ["node", "src/gps-simulator.js"]
+    command: [ "npm", "run", "gps-sim" ]
     environment:
       NODE_NAME: node_a
       NATS_URL: nats://nats_a:4222

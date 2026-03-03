@@ -2,19 +2,33 @@
   "name": "mesh-backend",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Distributed mesh POC backend services",
   "scripts": {
-    "db-sync": "node src/db-sync-service.js",
-    "nats-pubsub": "node src/nats-pubsub-service.js",
-    "jetstream": "node src/jetstream-service.js",
-    "gps-sim": "node src/gps-simulator.js"
+    "mission-service": "node dist/mission/index.js",
+    "gps-service": "node dist/gps/index.js",
+    "alerts-service": "node dist/alerts/index.js",
+    "gps-sim": "node dist/gps-simulator.js",
+    "build": "tsc",
+    "dev": "ts-node-dev --respawn --transpile-only src/mission/index.ts"
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.18.2",
     "nats": "^2.19.0",
     "pg": "^8.12.0",
     "uuid": "^9.0.1",
-    "ws": "^8.16.0",
-    "cors": "^2.8.5"
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.19.35",
+    "@types/pg": "^8.11.0",
+    "@types/uuid": "^9.0.8",
+    "@types/ws": "^8.5.10",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3"
   }
 }

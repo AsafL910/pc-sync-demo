@@ -1,14 +1,6 @@
-/**
- * DB Sync Service
- * - Creates schema (point_polygon_relations table + active_relations view)
- * - Sets up pglogical bi-directional replication
- * - Exposes REST API for relations
- */
-
-const express = require('express');
-const cors = require('cors');
-const { Pool } = require('pg');
-const { v4: uuidv4 } = require('uuid');
+import pg from 'pg';
+const { Pool } = pg;
+import { MissionRelation } from '../shared/types.js';
 
 const NODE_NAME = process.env.NODE_NAME || 'node_a';
 const PEER_NODE_NAME = process.env.PEER_NODE_NAME || 'node_b';
@@ -17,7 +9,6 @@ const PEER_DB_PORT = process.env.PEER_DB_PORT || '5432';
 const DB_USER = process.env.DB_USER || 'mesh';
 const DB_PASS = process.env.DB_PASS || 'mesh_pass';
 const DB_NAME = process.env.DB_NAME || 'meshdb';
-const PORT = parseInt(process.env.PORT || '3000', 10);
 
 const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
@@ -28,8 +19,7 @@ const pool = new Pool({
     max: 5,
 });
 
-// ---- Schema Setup ----
-async function createSchema() {
+export async function createSchema() {
     const client = await pool.connect();
     try {
         await client.query(`
@@ -54,7 +44,6 @@ async function createSchema() {
       CREATE INDEX IF NOT EXISTS idx_ppr_created_at ON point_polygon_relations(created_at);
     `);
 
-        // View: resolve current state (latest event per relation_id)
         await client.query(`
       CREATE OR REPLACE VIEW active_relations AS
       SELECT DISTINCT ON (relation_id)
@@ -76,11 +65,9 @@ async function createSchema() {
     }
 }
 
-// ---- pglogical Setup ----
-async function setupPglogical() {
+export async function setupPglogical() {
     const client = await pool.connect();
     try {
-        // Create pglogical node
         const nodeExists = await client.query(
             `SELECT 1 FROM pglogical.node WHERE node_name = $1`, [NODE_NAME]
         );
@@ -94,7 +81,6 @@ async function setupPglogical() {
             console.log(`[${NODE_NAME}] pglogical node created`);
         }
 
-        // Create replication set
         try {
             await client.query(
                 `SELECT pglogical.create_replication_set(
@@ -106,7 +92,7 @@ async function setupPglogical() {
         )`
             );
             console.log(`[${NODE_NAME}] Replication set created`);
-        } catch (e) {
+        } catch (e: any) {
             if (e.message.includes('already exists')) {
                 console.log(`[${NODE_NAME}] Replication set already exists`);
             } else {
@@ -114,7 +100,6 @@ async function setupPglogical() {
             }
         }
 
-        // Add table to replication set
         try {
             await client.query(
                 `SELECT pglogical.replication_set_add_table(
@@ -124,7 +109,7 @@ async function setupPglogical() {
         )`
             );
             console.log(`[${NODE_NAME}] Table added to replication set`);
-        } catch (e) {
+        } catch (e: any) {
             if (e.message.includes('already') || e.message.includes('duplicate')) {
                 console.log(`[${NODE_NAME}] Table already in replication set`);
             } else {
@@ -132,7 +117,6 @@ async function setupPglogical() {
             }
         }
 
-        // Subscribe to peer node (with retry loop as peer might not be up)
         await ensureSubscription();
 
         console.log(`[${NODE_NAME}] pglogical setup process initiated`);
@@ -148,15 +132,12 @@ async function ensureSubscription() {
         let client;
         try {
             client = await pool.connect();
-
-            // 1. Check if node ready locally
             const nodeInfo = await client.query(`SELECT 1 FROM pglogical.node WHERE node_name = $1`, [NODE_NAME]);
             if (nodeInfo.rows.length === 0) {
                 console.log(`[${NODE_NAME}] Local pglogical node not ready yet, skipping sub attempt`);
                 return false;
             }
 
-            // 2. Check if subscription exists
             const subExists = await client.query(
                 `SELECT 1 FROM pglogical.subscription WHERE sub_name = $1`,
                 [subName]
@@ -180,19 +161,16 @@ async function ensureSubscription() {
                 console.log(`[${NODE_NAME}] Subscription to ${PEER_NODE_NAME} created successfully`);
             }
 
-            // 3. Ensure conflict resolver
             await client.query(
                 `SELECT pglogical.alter_subscription_set_conflict_resolver($1::name, $2::name)`,
                 [subName, 'last_update_wins']
             ).catch(e => {
                 console.log(`[${NODE_NAME}] Conflict resolver update note: ${e.message}`);
-                // Not fatal if it's already set or fails temporarily
             });
 
             return true;
-        } catch (e) {
+        } catch (e: any) {
             console.error(`[${NODE_NAME}] Subscription attempt error:`, e.message);
-            if (e.detail) console.error(`[${NODE_NAME}] Error detail:`, e.detail);
             return false;
         } finally {
             if (client) client.release();
@@ -213,88 +191,22 @@ async function ensureSubscription() {
     }
 }
 
-// ---- Express App ----
-const app = express();
-app.use(cors());
-app.use(express.json());
-
-// Health check
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', node: NODE_NAME, service: 'db-sync' });
-});
-
-// POST /relations - Insert a new relation event
-app.post('/relations', async (req, res) => {
-    try {
-        const {
-            relation_id = uuidv4(),
-            point_id,
-            polygon_id,
-            status = 'connected',
-            metadata = {}
-        } = req.body;
-
-        const result = await pool.query(
-            `INSERT INTO point_polygon_relations (relation_id, point_id, polygon_id, status, metadata, origin_node)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-            [relation_id, point_id, polygon_id, status, JSON.stringify(metadata), NODE_NAME]
-        );
-
-        console.log(`[${NODE_NAME}] Inserted relation: ${relation_id}`);
-        res.status(201).json(result.rows[0]);
-    } catch (err) {
-        console.error(`[${NODE_NAME}] Insert error:`, err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// GET /relations - Query active relations view
-app.get('/relations', async (req, res) => {
-    try {
-        const result = await pool.query(
-            `SELECT * FROM active_relations ORDER BY created_at DESC`
-        );
-        res.json(result.rows);
-    } catch (err) {
-        console.error(`[${NODE_NAME}] Query error:`, err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// GET /relations/all - Query all events (raw append-only log)
-app.get('/relations/all', async (req, res) => {
-    try {
-        const result = await pool.query(
-            `SELECT * FROM point_polygon_relations ORDER BY created_at DESC`
-        );
-        res.json(result.rows);
-    } catch (err) {
-        console.error(`[${NODE_NAME}] Query error:`, err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// ---- Startup ----
-async function start() {
-    try {
-        await createSchema();
-        console.log(`[${NODE_NAME}] Waiting 5s for peer database to be ready...`);
-        await new Promise(r => setTimeout(r, 5000));
-        await setupPglogical();
-    } catch (err) {
-        console.error(`[${NODE_NAME}] Setup error:`, err.message);
-        console.log(`[${NODE_NAME}] Will retry pglogical setup in 10s...`);
-        setTimeout(async () => {
-            try { await setupPglogical(); } catch (e) {
-                console.error(`[${NODE_NAME}] pglogical retry failed:`, e.message);
-            }
-        }, 10000);
-    }
-
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log(`[${NODE_NAME}] DB Sync Service listening on port ${PORT}`);
-    });
+export async function insertRelation(relation: Omit<MissionRelation, 'id' | 'created_at' | 'origin_node'>) {
+    const result = await pool.query(
+        `INSERT INTO point_polygon_relations (relation_id, point_id, polygon_id, status, metadata, origin_node)
+   VALUES ($1, $2, $3, $4, $5, $6)
+   RETURNING *`,
+        [relation.relation_id, relation.point_id, relation.polygon_id, relation.status, JSON.stringify(relation.metadata), NODE_NAME]
+    );
+    return result.rows[0];
 }
 
-start();
+export async function getActiveRelations() {
+    const result = await pool.query(`SELECT * FROM active_relations ORDER BY created_at DESC`);
+    return result.rows;
+}
+
+export async function getAllRelations() {
+    const result = await pool.query(`SELECT * FROM point_polygon_relations ORDER BY created_at DESC`);
+    return result.rows;
+}

@@ -1,29 +1,22 @@
-/**
- * GPS Simulator
- * - Publishes fake GPS coords to sensor.gps every 2 seconds (plain pub/sub)
- * - Occasionally publishes a safety alert to alert.safety.collision (JetStream)
- */
-
-const { connect, StringCodec } = require('nats');
+import { connect, StringCodec, NatsConnection, JetStreamClient } from 'nats';
+import { Alert, GPSData } from './shared/types.js';
 
 const NODE_NAME = process.env.NODE_NAME || 'node_a';
 const NATS_URL = process.env.NATS_URL || 'nats://localhost:4222';
 
 const sc = StringCodec();
 
-// Simulate a route with slight random variation
-const BASE_COORDS = {
+const BASE_COORDS: Record<string, { lat: number, lng: number }> = {
     node_a: { lat: 32.0853, lng: 34.7818 }, // Tel Aviv
     node_b: { lat: 31.7683, lng: 35.2137 }, // Jerusalem
 };
 
-const base = BASE_COORDS[NODE_NAME] || BASE_COORDS.node_a;
+const base = { ...(BASE_COORDS[NODE_NAME] || BASE_COORDS.node_a) };
 let heading = Math.random() * 360;
 
-function generateGPS() {
-    // Simulate movement with slight drift
+function generateGPS(): GPSData {
     heading += (Math.random() - 0.5) * 20;
-    const speed = 30 + Math.random() * 80; // 30-110 km/h
+    const speed = 30 + Math.random() * 80;
     const drift = 0.0001 * speed / 50;
 
     base.lat += Math.cos(heading * Math.PI / 180) * drift;
@@ -33,21 +26,19 @@ function generateGPS() {
         node: NODE_NAME,
         lat: parseFloat(base.lat.toFixed(6)),
         lng: parseFloat(base.lng.toFixed(6)),
-        speed: parseFloat(speed.toFixed(1)),
-        heading: parseFloat(heading.toFixed(1)),
         timestamp: new Date().toISOString(),
     };
 }
 
-async function connectNats() {
+async function connectNats(): Promise<NatsConnection> {
     const maxRetries = 30;
     for (let i = 0; i < maxRetries; i++) {
         try {
             const nc = await connect({ servers: NATS_URL, name: `${NODE_NAME}-gps-sim` });
             console.log(`[${NODE_NAME}] GPS Simulator connected to NATS`);
             return nc;
-        } catch (err) {
-            console.log(`[${NODE_NAME}] NATS not ready, retry ${i + 1}/${maxRetries}...`);
+        } catch (err: any) {
+            console.log(`[${NODE_NAME}] NATS not ready, retry ${i + 1}/${maxRetries}... (${err.message})`);
             await new Promise(r => setTimeout(r, 2000));
         }
     }
@@ -60,23 +51,22 @@ async function start() {
 
     let tickCount = 0;
 
-    // Publish GPS every 2 seconds
     const gpsInterval = setInterval(() => {
         const gps = generateGPS();
         nc.publish('sensor.gps', sc.encode(JSON.stringify(gps)));
         tickCount++;
 
-        // Every ~30 ticks (60 seconds), simulate a safety alert
         if (tickCount % 30 === 0) {
-            const alert = {
+            const alert: Alert = {
                 node: NODE_NAME,
                 type: 'collision',
                 severity: Math.random() > 0.5 ? 'high' : 'medium',
                 message: `Potential collision detected at (${gps.lat}, ${gps.lng})`,
-                data: { lat: gps.lat, lng: gps.lng, speed: gps.speed },
+                data: { lat: gps.lat, lng: gps.lng },
                 timestamp: new Date().toISOString(),
             };
-            js.publish('alert.safety.collision', sc.encode(JSON.stringify(alert)))
+            // Corrected subject to match service: alert.safety.${node}.${type}
+            js.publish(`alert.safety.${NODE_NAME}.collision`, sc.encode(JSON.stringify(alert)))
                 .then(() => console.log(`[${NODE_NAME}] Published safety alert`))
                 .catch(e => console.error(`[${NODE_NAME}] Alert publish error:`, e.message));
         }

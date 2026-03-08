@@ -18,12 +18,18 @@ operations:
     channel:
       $ref: '#/channels/alert.safety.node'
     summary: Receive safety alerts from any node in the mesh.
+  entityDeltaSub:
+    action: receive
+    channel:
+      $ref: '#/channels/mission.entities.delta'
+    summary: Subscribe to entity delta updates.
 channels:
   sensor.gps:
     address: sensor.gps
     messages:
       gpsData:
-        $ref: '#/components/messages/GPSData'
+        payload:
+          $ref: '#/components/schemas/GPSData'
     description: High-frequency GPS telemetry data.
   alert.safety.node:
     address: 'alert.safety.{nodeName}.{alertType}'
@@ -34,22 +40,17 @@ channels:
         description: 'The type of safety event (e.g., collision, system_failure).'
     messages:
       safetyAlert:
-        $ref: '#/components/messages/Alert'
+        payload:
+          $ref: '#/components/schemas/Alert'
     description: JetStream-backed safety alerts for critical status updates.
+  mission.entities.delta:
+    address: mission.entities.delta
+    messages:
+      entityDelta:
+        payload:
+          $ref: '#/components/schemas/EntityDelta'
+    description: Delta updates for spatial entities.
 components:
-  messages:
-    GPSData:
-      name: GPSData
-      title: GPS Coordinates
-      summary: Periodic GPS location update from a node.
-      payload:
-        $ref: '#/components/schemas/GPSData'
-    Alert:
-      name: Alert
-      title: Safety Alert
-      summary: Critical safety notification with severity level.
-      payload:
-        $ref: '#/components/schemas/Alert'
   schemas:
     GPSData:
       type: object
@@ -57,6 +58,9 @@ components:
         node:
           type: string
           description: Name of the publishing node.
+        mission_id:
+          type: string
+          description: UUID of the mission.
         lat:
           type: number
           format: float
@@ -71,6 +75,7 @@ components:
           description: ISO-8601 timestamp of data capture.
       required:
         - node
+        - mission_id
         - lat
         - lng
         - timestamp
@@ -80,6 +85,9 @@ components:
         node:
           type: string
           description: Name of the node that detected the event.
+        mission_id:
+          type: string
+          description: UUID of the mission.
         type:
           type: string
           description: 'Category of the alert (e.g., collision).'
@@ -97,10 +105,43 @@ components:
           description: ISO-8601 timestamp of the event.
       required:
         - node
+        - mission_id
         - type
         - severity
         - message
         - timestamp
+    EntityDelta:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - update
+            - reload
+          description: Type of delta. 'reload' forces the client to refetch via HTTP.
+        mission_id:
+          type: string
+          description: UUID of the mission this entity belongs to.
+        entity_id:
+          type: string
+          description: UUID of the entity.
+        entity_type:
+          type: string
+          description: Type of the entity (e.g., polygon, point).
+        geometry:
+          type: object
+          description: GeoJSON Geometry object.
+        properties:
+          type: object
+          description: Entity properties (e.g., color, opacity).
+        version:
+          type: integer
+          description: Entity version number.
+        schema_version:
+          type: integer
+          description: Schema version.
+      required:
+        - type
     AlertSeverity:
       type: string
       enum:

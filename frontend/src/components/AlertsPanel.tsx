@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { StringCodec, AckPolicy, DeliverPolicy, ConsumerMessages, JsMsg } from 'nats.ws';
 import { StatusDot } from './StatusDot';
 import { AlertsPanelProps, SafetyAlert } from '../types/nats';
@@ -12,16 +12,40 @@ const sc = StringCodec();
 export const AlertsPanel = ({ nc }: AlertsPanelProps) => {
     const [alerts, setAlerts] = useState<SafetyAlert[]>([]);
     const [jsConnected, setJsConnected] = useState<boolean>(false);
+    const setupAttemptRef = useRef(0);
 
     useEffect(() => {
         if (!nc) return;
+
+        let cancelled = false;
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
         const subs: ConsumerMessages[] = [];
 
+        const clearResources = () => {
+            subs.splice(0).forEach((sub) => sub.stop());
+            if (retryTimer) {
+                clearTimeout(retryTimer);
+                retryTimer = null;
+            }
+        };
+
+        const scheduleRetry = () => {
+            if (cancelled) return;
+            const delay = Math.min(1000 * Math.pow(2, setupAttemptRef.current), 5000);
+            retryTimer = setTimeout(() => {
+                void setupJetStream();
+            }, delay);
+        };
+
         const setupJetStream = async () => {
+            clearResources();
+            setJsConnected(false);
+
             try {
                 const jsm = await nc.jetstreamManager({ domain: NODE_DOMAIN });
                 const js = nc.jetstream({ domain: NODE_DOMAIN });
                 const streams = ['SAFETY_ALERTS', `MIRROR_SAFETY_${PEER_DOMAIN.toUpperCase()}`];
+                let connectedStreams = 0;
 
                 for (const streamName of streams) {
                     try {
@@ -40,30 +64,51 @@ export const AlertsPanel = ({ nc }: AlertsPanelProps) => {
                                 try {
                                     const data = JSON.parse(sc.decode(msg.data)) as SafetyAlert;
                                     setAlerts((prev) => {
-                                        if (prev.some(a => a.timestamp === data.timestamp && a.node === data.node)) return prev;
+                                        if (prev.some((a) => a.timestamp === data.timestamp && a.node === data.node)) return prev;
                                         return [{ ...data, seq: msg.seq }, ...prev].slice(0, 50);
                                     });
                                     msg.ack();
-                                } catch (err) { msg.ack(); }
+                                } catch {
+                                    msg.ack();
+                                }
                             }
                         };
-                        processMessages();
+                        void processMessages();
 
                         subs.push(iter);
+                        connectedStreams += 1;
                     } catch (err: any) {
                         console.warn(`[JetStream] Consumer creation failed for ${streamName}:`, err.message);
                     }
                 }
-                setJsConnected(true);
+
+                if (cancelled) {
+                    clearResources();
+                    return;
+                }
+
+                if (connectedStreams === streams.length) {
+                    setupAttemptRef.current = 0;
+                    setJsConnected(true);
+                    return;
+                }
+
+                setupAttemptRef.current += 1;
+                scheduleRetry();
             } catch (err) {
-                console.error("[JetStream] Manager setup error:", err);
+                if (cancelled) return;
+                console.error('[JetStream] Manager setup error:', err);
+                setupAttemptRef.current += 1;
+                scheduleRetry();
             }
         };
 
-        setupJetStream();
+        void setupJetStream();
 
         return () => {
-            subs.forEach(s => s.stop());
+            cancelled = true;
+            setJsConnected(false);
+            clearResources();
         };
     }, [nc]);
 

@@ -55,13 +55,34 @@ services:
       PEER_DB_HOST: postgres_a
       PEER_DB_PORT: 5432
       PEER_NODE_NAME: node_a
-      NATS_URL: nats://nats_b:4222
       PORT: 3000
     ports:
       - "3002:3000"
     depends_on:
       postgres_b:
         condition: service_healthy
+    networks:
+      - mesh-net
+    restart: unless-stopped
+
+  bridge_service_b:
+    build: ../backend
+    container_name: bridge_service_b
+    command: [ "npm", "run", "bridge-service" ]
+    environment:
+      NODE_NAME: node_b
+      DB_HOST: postgres_b
+      DB_PORT: 5432
+      DB_USER: mesh
+      DB_PASS: mesh_pass
+      DB_NAME: meshdb
+      NATS_URL: nats://nats_b:4222
+      PEER_NODE_NAME: node_a
+    depends_on:
+      postgres_b:
+        condition: service_healthy
+      nats_b:
+        condition: service_started
     networks:
       - mesh-net
     restart: unless-stopped
@@ -130,3 +151,4 @@ services:
 volumes:
   pgdata_b:
   nats_b_data:
+

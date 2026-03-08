@@ -1,6 +1,7 @@
 import AlertSeverity from './AlertSeverity';
 interface ReservedAlert {
   node: string;
+  mission_id: string;
   reservedType: string;
   severity: AlertSeverity;
   message: string;

@@ -9,8 +9,8 @@ export function setupAlertsApp(nc: NatsConnection): Express {
 
     app.post('/alerts', async (req, res) => {
         try {
-            const { type: reservedType = 'collision', severity = 'high', message = 'Safety alert', data = {} } = req.body;
-            const payload = await publishAlert(nc, { reservedType, severity, message, data });
+            const { mission_id, type: reservedType = 'collision', severity = 'high', message = 'Safety alert', data = {} } = req.body;
+            const payload = await publishAlert(nc, { mission_id, reservedType, severity, message, data });
             console.log(`[${nodeName}] Published safety alert: ${nodeName}.${reservedType}`);
             res.status(201).json(payload);
         } catch (err: any) {

@@ -1,9 +1,10 @@
 FROM postgres:16
 
-# Install pglogical extension
+# Install pglogical and PostGIS extensions
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       postgresql-16-pglogical \
+    postgresql-16-pglogical \
+    postgresql-16-postgis-3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy custom configs

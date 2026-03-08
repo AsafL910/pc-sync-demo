@@ -18,14 +18,16 @@ export interface SafetyAlert extends ReservedAlert {
     seq?: number;
 }
 
-export interface Relation {
-    id: number;
-    relation_id: string;
-    point_id: string;
-    polygon_id: string;
-    status: string;
-    origin_node: string;
+export interface MissionSummary {
+    id: string;
+    name: string;
     created_at: string;
+}
+
+export interface MissionCreatedMessage extends MissionSummary {
+    node: string;
+    timestamp: string;
+    seq?: number;
 }
 
 export interface UseNatsReturn {

@@ -24,6 +24,7 @@ function generateGPS(): GpsData {
 
     return {
         node: NODE_NAME,
+        mission_id: 'pending', // Overwritten in start()
         lat: parseFloat(base.lat.toFixed(6)),
         lng: parseFloat(base.lng.toFixed(6)),
         timestamp: new Date().toISOString(),
@@ -39,7 +40,7 @@ async function connectNats(): Promise<NatsConnection> {
             return nc;
         } catch (err: any) {
             console.log(`[${NODE_NAME}] NATS not ready, retry ${i + 1}/${maxRetries}... (${err.message})`);
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, 1000));
         }
     }
     throw new Error('Failed to connect to NATS');
@@ -49,16 +50,42 @@ async function start() {
     const nc = await connectNats();
     const js = nc.jetstream();
 
+    const DB_SYNC_URL = process.env.DB_SYNC_URL || 'http://mission_service_a:3000';
+    let missionId = 'default-mission';
+
+    const fetchMission = async () => {
+        try {
+            const res = await fetch(`${DB_SYNC_URL}/missions`);
+            const missions = await res.json() as any[];
+            if (missions.length > 0) {
+                missionId = missions[0].id;
+                console.log(`[${NODE_NAME}] GPS Simulator using mission: ${missionId}`);
+                return true;
+            }
+        } catch (e) {
+            // silent retry
+        }
+        return false;
+    };
+
+    // Retry until a mission is found
+    while (!(await fetchMission())) {
+        console.log(`[${NODE_NAME}] Waiting for a mission to be created...`);
+        await new Promise(r => setTimeout(r, 5000));
+    }
+
     let tickCount = 0;
 
     const gpsInterval = setInterval(() => {
         const gps = generateGPS();
+        (gps as any).mission_id = missionId;
         nc.publish('sensor.gps', sc.encode(JSON.stringify(gps)));
         tickCount++;
 
         if (tickCount % 30 === 0) {
             const alert: ReservedAlert = {
                 node: NODE_NAME,
+                mission_id: missionId,
                 reservedType: 'collision',
                 severity: Math.random() > 0.5 ? AlertSeverity.HIGH : AlertSeverity.MEDIUM,
                 message: `Potential collision detected at (${gps.lat}, ${gps.lng})`,

@@ -1,6 +1,5 @@
 import pg from 'pg';
 const { Pool } = pg;
-import { MissionRelation } from '../shared/types.js';
 
 const NODE_NAME = process.env.NODE_NAME || 'node_a';
 const PEER_NODE_NAME = process.env.PEER_NODE_NAME || 'node_b';
@@ -23,40 +22,200 @@ export async function createSchema() {
     const client = await pool.connect();
     try {
         await client.query(`
-      CREATE TABLE IF NOT EXISTS point_polygon_relations (
-        id UUID DEFAULT gen_random_uuid(),
-        relation_id UUID NOT NULL,
-        point_id VARCHAR(255) NOT NULL,
-        polygon_id VARCHAR(255) NOT NULL,
-        status VARCHAR(20) NOT NULL CHECK (status IN ('connected', 'disconnected')),
-        metadata JSONB DEFAULT '{}',
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        origin_node VARCHAR(100) DEFAULT '${NODE_NAME}',
-        PRIMARY KEY (id)
+      CREATE TABLE IF NOT EXISTS missions (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          name TEXT NOT NULL,
+          last_change_seq BIGINT DEFAULT 0,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          deleted_at TIMESTAMPTZ
       );
     `);
 
         await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_ppr_relation_id ON point_polygon_relations(relation_id);
+      CREATE TABLE IF NOT EXISTS infra (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          name TEXT NOT NULL,
+          last_change_seq BIGINT DEFAULT 0,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          deleted_at TIMESTAMPTZ
+      );
     `);
 
         await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_ppr_created_at ON point_polygon_relations(created_at);
+      CREATE TABLE IF NOT EXISTS entities (
+          entity_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          mission_id UUID REFERENCES missions(id),
+          infra_id UUID REFERENCES infra(id),
+          parent_entity_id UUID REFERENCES entities(entity_id),
+
+          entity_type TEXT NOT NULL,
+          geom GEOMETRY(Geometry, 4326),
+          properties JSONB DEFAULT '{}',
+
+          version BIGINT DEFAULT 1,
+          schema_version INT DEFAULT 1,
+          is_deleted BOOLEAN DEFAULT false,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          origin_node VARCHAR(100) DEFAULT '${NODE_NAME}',
+
+          CONSTRAINT belongs_to_one CHECK (
+              (mission_id IS NOT NULL AND infra_id IS NULL) OR
+              (mission_id IS NULL AND infra_id IS NOT NULL)
+          ),
+
+          CONSTRAINT enforce_spatial_integrity CHECK (
+              (entity_type IN ('point', 'circle') AND ST_GeometryType(geom) = 'ST_Point') OR
+              (entity_type = 'polygon' AND ST_GeometryType(geom) IN ('ST_Polygon', 'ST_MultiPolygon')) OR
+              (entity_type = 'linestring' AND ST_GeometryType(geom) IN ('ST_LineString', 'ST_MultiLineString'))
+          )
+      );
     `);
 
         await client.query(`
-      CREATE OR REPLACE VIEW active_relations AS
-      SELECT DISTINCT ON (relation_id)
-        id,
-        relation_id,
-        point_id,
-        polygon_id,
-        status,
-        metadata,
-        created_at,
+      CREATE INDEX IF NOT EXISTS idx_spatial_entities ON entities USING GIST (geom);
+    `);
+
+        const DEFAULT_MISSION_ID = '00000000-0000-0000-0000-000000000001';
+        await client.query(`
+            INSERT INTO missions (id, name)
+            VALUES ($1, 'Default Operations')
+            ON CONFLICT (id) DO NOTHING;
+        `, [DEFAULT_MISSION_ID]);
+
+        await client.query(`
+      CREATE OR REPLACE FUNCTION bump_mission_seq() RETURNS trigger AS $$
+      DECLARE
+        target_id UUID;
+      BEGIN
+        target_id := COALESCE(NEW.mission_id, OLD.mission_id);
+        IF target_id IS NOT NULL THEN
+          UPDATE missions SET last_change_seq = last_change_seq + 1 WHERE id = target_id;
+        END IF;
+        RETURN COALESCE(NEW, OLD);
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trg_entities_mission_seq ON entities;
+      CREATE TRIGGER trg_entities_mission_seq
+      AFTER INSERT OR UPDATE OR DELETE ON entities
+      FOR EACH ROW
+      EXECUTE FUNCTION bump_mission_seq();
+
+      CREATE OR REPLACE FUNCTION bump_infra_seq() RETURNS trigger AS $$
+      DECLARE
+        target_id UUID;
+      BEGIN
+        target_id := COALESCE(NEW.infra_id, OLD.infra_id);
+        IF target_id IS NOT NULL THEN
+          UPDATE infra SET last_change_seq = last_change_seq + 1 WHERE id = target_id;
+        END IF;
+        RETURN COALESCE(NEW, OLD);
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trg_entities_infra_seq ON entities;
+      CREATE TRIGGER trg_entities_infra_seq
+      AFTER INSERT OR UPDATE OR DELETE ON entities
+      FOR EACH ROW
+      EXECUTE FUNCTION bump_infra_seq();
+
+      CREATE OR REPLACE FUNCTION bump_entity_version() RETURNS trigger AS $$
+      BEGIN
+        NEW.version = OLD.version + 1;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trg_entities_version ON entities;
+      CREATE TRIGGER trg_entities_version
+      BEFORE UPDATE ON entities
+      FOR EACH ROW
+      EXECUTE FUNCTION bump_entity_version();
+
+      CREATE OR REPLACE FUNCTION notify_entity_change() RETURNS trigger AS $$
+      DECLARE
+        payload TEXT;
+        r RECORD;
+      BEGIN
+        r := COALESCE(NEW, OLD);
+        payload := json_build_object(
+          'entity_id', r.entity_id,
+          'version', r.version,
+          'mission_id', r.mission_id,
+          'infra_id', r.infra_id,
+          'origin_node', r.origin_node
+        )::text;
+        PERFORM pg_notify('entity_changes', payload);
+        RETURN r;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trg_entities_notify ON entities;
+      CREATE TRIGGER trg_entities_notify
+      AFTER INSERT OR UPDATE ON entities
+      FOR EACH ROW
+      EXECUTE FUNCTION notify_entity_change();
+
+      CREATE OR REPLACE FUNCTION notify_mission_change() RETURNS trigger AS $mission$
+      DECLARE
+        payload TEXT;
+        r RECORD;
+        op TEXT;
+      BEGIN
+        r := COALESCE(NEW, OLD);
+        op := CASE WHEN TG_OP = 'INSERT' THEN 'created' ELSE 'updated' END;
+        payload := json_build_object(
+          'id', r.id,
+          'name', r.name,
+          'created_at', r.created_at,
+          'deleted_at', r.deleted_at,
+          'operation', op
+        )::text;
+        PERFORM pg_notify('mission_changes', payload);
+        RETURN r;
+      END;
+      $mission$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trg_missions_notify ON missions;
+      CREATE TRIGGER trg_missions_notify
+      AFTER INSERT OR UPDATE ON missions
+      FOR EACH ROW
+      EXECUTE FUNCTION notify_mission_change();
+
+      ALTER TABLE entities ENABLE ALWAYS TRIGGER trg_entities_notify;
+      ALTER TABLE missions ENABLE ALWAYS TRIGGER trg_missions_notify;
+    `);
+
+        await client.query(`DROP VIEW IF EXISTS v_map_render_layer;`);
+        await client.query(`DROP VIEW IF EXISTS v_active_entities;`);
+
+        await client.query(`
+      CREATE VIEW v_active_entities AS
+      SELECT e.*
+      FROM entities e
+      LEFT JOIN missions m ON e.mission_id = m.id
+      LEFT JOIN infra i ON e.infra_id = i.id
+      WHERE (m.deleted_at IS NULL OR e.mission_id IS NULL)
+        AND (i.deleted_at IS NULL OR e.infra_id IS NULL)
+        AND e.is_deleted = false;
+    `);
+
+        await client.query(`
+      CREATE VIEW v_map_render_layer AS
+      SELECT
+        entity_id,
+        mission_id,
+        entity_type,
+        geom,
+        jsonb_set(
+            properties,
+            '{opacity}',
+            COALESCE(properties->'opacity', '1.0'::jsonb)
+        ) as properties,
+        version,
+        schema_version,
         origin_node
-      FROM point_polygon_relations
-      ORDER BY relation_id, created_at DESC;
+      FROM v_active_entities;
     `);
 
         console.log(`[${NODE_NAME}] Schema created successfully`);
@@ -100,20 +259,23 @@ export async function setupPglogical() {
             }
         }
 
-        try {
-            await client.query(
-                `SELECT pglogical.replication_set_add_table(
-          set_name := 'mesh_replication',
-          relation := 'point_polygon_relations',
-          synchronize_data := true
-        )`
-            );
-            console.log(`[${NODE_NAME}] Table added to replication set`);
-        } catch (e: any) {
-            if (e.message.includes('already') || e.message.includes('duplicate')) {
-                console.log(`[${NODE_NAME}] Table already in replication set`);
-            } else {
-                throw e;
+        const tables = ['missions', 'infra', 'entities'];
+        for (const table of tables) {
+            try {
+                await client.query(
+                    `SELECT pglogical.replication_set_add_table(
+              set_name := 'mesh_replication',
+              relation := $1,
+              synchronize_data := true
+            )`, [table]
+                );
+                console.log(`[${NODE_NAME}] Table ${table} added to replication set`);
+            } catch (e: any) {
+                if (e.message.includes('already') || e.message.includes('duplicate')) {
+                    console.log(`[${NODE_NAME}] Table ${table} already in replication set`);
+                } else {
+                    throw e;
+                }
             }
         }
 
@@ -138,6 +300,21 @@ async function ensureSubscription() {
                 return false;
             }
 
+            const statusResult = await client.query(
+                `SELECT subscription_name, status
+                 FROM pglogical.show_subscription_status()
+                 WHERE subscription_name = $1`,
+                [subName]
+            ).catch(() => ({ rows: [] as Array<{ subscription_name: string; status: string }> }));
+
+            const currentStatus = statusResult.rows[0]?.status;
+            if (currentStatus === 'down') {
+                console.log(`[${NODE_NAME}] Subscription ${subName} is down, dropping and recreating it`);
+                await client.query(`SELECT pglogical.drop_subscription($1, true)`, [subName]).catch((e: any) => {
+                    console.log(`[${NODE_NAME}] Drop subscription note: ${e.message}`);
+                });
+            }
+
             const subExists = await client.query(
                 `SELECT 1 FROM pglogical.subscription WHERE sub_name = $1`,
                 [subName]
@@ -152,7 +329,7 @@ async function ensureSubscription() {
                         subscription_name := $1,
                         provider_dsn := $2,
                         replication_sets := ARRAY['mesh_replication'],
-                        synchronize_data := true,
+                        synchronize_data := false,
                         forward_origins := '{}',
                         apply_delay := '0 seconds'::interval
                     )`,
@@ -161,12 +338,18 @@ async function ensureSubscription() {
                 console.log(`[${NODE_NAME}] Subscription to ${PEER_NODE_NAME} created successfully`);
             }
 
-            await client.query(
-                `SELECT pglogical.alter_subscription_set_conflict_resolver($1::name, $2::name)`,
-                [subName, 'last_update_wins']
-            ).catch(e => {
-                console.log(`[${NODE_NAME}] Conflict resolver update note: ${e.message}`);
-            });
+            const verifyStatus = await client.query(
+                `SELECT status
+                 FROM pglogical.show_subscription_status()
+                 WHERE subscription_name = $1`,
+                [subName]
+            ).catch(() => ({ rows: [] as Array<{ status: string }> }));
+
+            const status = verifyStatus.rows[0]?.status;
+            if (!status || status === 'down') {
+                console.log(`[${NODE_NAME}] Subscription ${subName} is not healthy yet (status: ${status || 'unknown'})`);
+                return false;
+            }
 
             return true;
         } catch (e: any) {
@@ -191,22 +374,95 @@ async function ensureSubscription() {
     }
 }
 
-export async function insertRelation(relation: Omit<MissionRelation, 'id' | 'created_at' | 'origin_node'>) {
+export async function getMissions() {
+    const result = await pool.query(`SELECT id, name, created_at FROM missions ORDER BY created_at DESC`);
+    return result.rows;
+}
+
+export async function getActiveEntities(missionId: string) {
+    const result = await pool.query(`
+        SELECT
+            entity_id,
+            mission_id,
+            entity_type,
+            ST_AsGeoJSON(geom)::jsonb as geometry,
+            properties,
+            version,
+            schema_version,
+            origin_node
+        FROM v_map_render_layer
+        WHERE mission_id = $1
+    `, [missionId]);
+    return result.rows;
+}
+
+export async function getMapRenderLayer(missionId: string) {
+    const result = await pool.query(`
+        SELECT
+            entity_id,
+            mission_id,
+            entity_type,
+            ST_AsGeoJSON(geom)::jsonb as geometry,
+            properties,
+            version,
+            schema_version
+        FROM v_map_render_layer
+        WHERE mission_id = $1
+    `, [missionId]);
+    return result.rows;
+}
+
+export async function insertRandomEntity(missionId: string) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const missionCheck = await client.query(
+            `SELECT id FROM missions WHERE id = $1 AND deleted_at IS NULL`,
+            [missionId]
+        );
+        if (missionCheck.rows.length === 0) {
+            throw new Error('Mission not found');
+        }
+
+        const lat = 31.5 + Math.random();
+        const lng = 34.5 + Math.random();
+        const types = ['point', 'polygon', 'linestring'];
+        const entityType = types[Math.floor(Math.random() * types.length)];
+        let geomStr = `ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)`;
+        if (entityType === 'polygon') {
+            geomStr = `ST_SetSRID(ST_MakePolygon(ST_GeomFromText('LINESTRING(${lng} ${lat}, ${lng + 0.01} ${lat}, ${lng + 0.01} ${lat + 0.01}, ${lng} ${lat + 0.01}, ${lng} ${lat})')), 4326)`;
+        } else if (entityType === 'linestring') {
+            geomStr = `ST_SetSRID(ST_GeomFromText('LINESTRING(${lng} ${lat}, ${lng + 0.01} ${lat + 0.01})'), 4326)`;
+        }
+
+        const res = await client.query(`
+            INSERT INTO entities(mission_id, entity_type, geom, properties)
+            VALUES ($1, $2, ${geomStr}, $3)
+            RETURNING entity_id
+        `, [
+            missionId,
+            entityType,
+            JSON.stringify({
+                color: ['#3b82f6', '#10b981', '#ef4444', '#f59e0b'][Math.floor(Math.random() * 4)],
+                opacity: 0.8
+            })
+        ]);
+
+        await client.query('COMMIT');
+        return { mission_id: missionId, entity_id: res.rows[0].entity_id };
+    } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+    } finally {
+        client.release();
+    }
+}
+
+export async function createMission(name: string) {
     const result = await pool.query(
-        `INSERT INTO point_polygon_relations (relation_id, point_id, polygon_id, status, metadata, origin_node)
-   VALUES ($1, $2, $3, $4, $5, $6)
-   RETURNING *`,
-        [relation.relation_id, relation.point_id, relation.polygon_id, relation.status, JSON.stringify(relation.metadata), NODE_NAME]
+        `INSERT INTO missions (name) VALUES ($1) RETURNING id, name, created_at`,
+        [name]
     );
     return result.rows[0];
 }
 
-export async function getActiveRelations() {
-    const result = await pool.query(`SELECT * FROM active_relations ORDER BY created_at DESC`);
-    return result.rows;
-}
-
-export async function getAllRelations() {
-    const result = await pool.query(`SELECT * FROM point_polygon_relations ORDER BY created_at DESC`);
-    return result.rows;
-}

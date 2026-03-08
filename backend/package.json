@@ -6,6 +6,7 @@
   "description": "Distributed mesh POC backend services",
   "scripts": {
     "mission-service": "node dist/mission/index.js",
+    "bridge-service": "node dist/bridge/index.js",
     "gps-service": "node dist/gps/index.js",
     "alerts-service": "node dist/alerts/index.js",
     "gps-sim": "node dist/gps-simulator.js",

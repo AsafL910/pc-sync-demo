@@ -87,6 +87,8 @@ export async function createSchema() {
       DECLARE
         target_id UUID;
       BEGIN
+        -- Derived state: compute once on the writer and replicate the result
+        -- as row data. Replica apply should not re-run this logic.
         target_id := COALESCE(NEW.mission_id, OLD.mission_id);
         IF target_id IS NOT NULL THEN
           UPDATE missions SET last_change_seq = last_change_seq + 1 WHERE id = target_id;
@@ -105,6 +107,8 @@ export async function createSchema() {
       DECLARE
         target_id UUID;
       BEGIN
+        -- Derived state: compute once on the writer and replicate the result
+        -- as row data. Replica apply should not re-run this logic.
         target_id := COALESCE(NEW.infra_id, OLD.infra_id);
         IF target_id IS NOT NULL THEN
           UPDATE infra SET last_change_seq = last_change_seq + 1 WHERE id = target_id;
@@ -121,6 +125,8 @@ export async function createSchema() {
 
       CREATE OR REPLACE FUNCTION bump_entity_version() RETURNS trigger AS $$
       BEGIN
+        -- Version is writer-derived state. Accept the replicated value on
+        -- peer nodes instead of incrementing again during replica apply.
         NEW.version = OLD.version + 1;
         RETURN NEW;
       END;
@@ -137,6 +143,8 @@ export async function createSchema() {
         payload TEXT;
         r RECORD;
       BEGIN
+        -- Notifications are side effects. These should be replayed on replica
+        -- apply so the local bridge can emit local deltas.
         r := COALESCE(NEW, OLD);
         payload := json_build_object(
           'entity_id', r.entity_id,
@@ -162,6 +170,15 @@ export async function createSchema() {
         r RECORD;
         op TEXT;
       BEGIN
+        -- Suppress heartbeat-only updates. last_change_seq is replicated state,
+        -- but mission lifecycle notifications should only describe meaningful
+        -- lifecycle changes such as create, rename, or delete.
+        IF TG_OP = 'UPDATE'
+           AND NEW.name IS NOT DISTINCT FROM OLD.name
+           AND NEW.deleted_at IS NOT DISTINCT FROM OLD.deleted_at THEN
+          RETURN NEW;
+        END IF;
+
         r := COALESCE(NEW, OLD);
         op := CASE WHEN TG_OP = 'INSERT' THEN 'created' ELSE 'updated' END;
         payload := json_build_object(
@@ -182,6 +199,9 @@ export async function createSchema() {
       FOR EACH ROW
       EXECUTE FUNCTION notify_mission_change();
 
+      ALTER TABLE entities ENABLE TRIGGER trg_entities_mission_seq;
+      ALTER TABLE entities ENABLE TRIGGER trg_entities_infra_seq;
+      ALTER TABLE entities ENABLE TRIGGER trg_entities_version;
       ALTER TABLE entities ENABLE ALWAYS TRIGGER trg_entities_notify;
       ALTER TABLE missions ENABLE ALWAYS TRIGGER trg_missions_notify;
     `);

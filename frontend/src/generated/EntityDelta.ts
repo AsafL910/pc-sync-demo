@@ -1,11 +1,6 @@
 export interface EntityDelta {
-    type: 'update' | 'reload';
-    mission_id?: string;
-    entity_id?: string;
-    entity_type?: string;
-    geometry?: any;
-    properties?: any;
-    version?: number;
-    schema_version?: number;
+    type: 'changed';
+    mission_id: string;
+    last_change_seq: number;
     origin_node?: string;
 }

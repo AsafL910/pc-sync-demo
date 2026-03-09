@@ -34,6 +34,7 @@ const bootstrapStatements = [
           geom GEOMETRY(Geometry, 4326),
           properties JSONB NOT NULL DEFAULT '{}',
           version BIGINT NOT NULL DEFAULT 1,
+          mission_change_seq BIGINT NOT NULL DEFAULT 0,
           schema_version INT NOT NULL DEFAULT 1,
           is_deleted BOOLEAN NOT NULL DEFAULT false,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -49,6 +50,7 @@ const bootstrapStatements = [
           )
       );
     `,
+    "ALTER TABLE entities ADD COLUMN IF NOT EXISTS mission_change_seq BIGINT NOT NULL DEFAULT 0;",
     "CREATE INDEX IF NOT EXISTS idx_spatial_entities ON entities USING GIST (geom);",
     `
       INSERT INTO missions (id, name)
@@ -56,23 +58,37 @@ const bootstrapStatements = [
       ON CONFLICT (id) DO NOTHING;
     `,
     `
-      CREATE OR REPLACE FUNCTION bump_mission_seq() RETURNS trigger AS $$
+      CREATE OR REPLACE FUNCTION assign_entity_change_metadata() RETURNS trigger AS $$
       DECLARE
-        target_id UUID;
+        target_mission_id UUID;
+        next_seq BIGINT;
       BEGIN
-        target_id := COALESCE(NEW.mission_id, OLD.mission_id);
-        IF target_id IS NOT NULL THEN
-          UPDATE missions SET last_change_seq = last_change_seq + 1 WHERE id = target_id;
+        target_mission_id := COALESCE(NEW.mission_id, OLD.mission_id);
+
+        IF target_mission_id IS NOT NULL THEN
+          UPDATE missions
+          SET last_change_seq = last_change_seq + 1
+          WHERE id = target_mission_id
+          RETURNING last_change_seq INTO next_seq;
+
+          NEW.mission_change_seq := COALESCE(next_seq, NEW.mission_change_seq, 0);
         END IF;
-        RETURN COALESCE(NEW, OLD);
+
+        IF TG_OP = 'UPDATE' THEN
+          NEW.version := OLD.version + 1;
+        ELSE
+          NEW.version := COALESCE(NEW.version, 1);
+        END IF;
+
+        RETURN NEW;
       END;
       $$ LANGUAGE plpgsql;
 
-      DROP TRIGGER IF EXISTS trg_entities_mission_seq ON entities;
-      CREATE TRIGGER trg_entities_mission_seq
-      AFTER INSERT OR UPDATE OR DELETE ON entities
+      DROP TRIGGER IF EXISTS trg_entities_assign_change_metadata ON entities;
+      CREATE TRIGGER trg_entities_assign_change_metadata
+      BEFORE INSERT OR UPDATE ON entities
       FOR EACH ROW
-      EXECUTE FUNCTION bump_mission_seq();
+      EXECUTE FUNCTION assign_entity_change_metadata();
     `,
     `
       CREATE OR REPLACE FUNCTION bump_infra_seq() RETURNS trigger AS $$
@@ -94,20 +110,6 @@ const bootstrapStatements = [
       EXECUTE FUNCTION bump_infra_seq();
     `,
     `
-      CREATE OR REPLACE FUNCTION bump_entity_version() RETURNS trigger AS $$
-      BEGIN
-        NEW.version = OLD.version + 1;
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql;
-
-      DROP TRIGGER IF EXISTS trg_entities_version ON entities;
-      CREATE TRIGGER trg_entities_version
-      BEFORE UPDATE ON entities
-      FOR EACH ROW
-      EXECUTE FUNCTION bump_entity_version();
-    `,
-    `
       CREATE OR REPLACE FUNCTION notify_entity_change() RETURNS trigger AS $$
       DECLARE
         payload TEXT;
@@ -115,10 +117,8 @@ const bootstrapStatements = [
       BEGIN
         row_data := COALESCE(NEW, OLD);
         payload := json_build_object(
-          'entity_id', row_data.entity_id,
-          'version', row_data.version,
           'mission_id', row_data.mission_id,
-          'infra_id', row_data.infra_id,
+          'last_change_seq', row_data.mission_change_seq,
           'origin_node', row_data.origin_node
         )::text;
         PERFORM pg_notify('entity_changes', payload);
@@ -166,9 +166,8 @@ const bootstrapStatements = [
       EXECUTE FUNCTION notify_mission_change();
     `,
     `
-      ALTER TABLE entities ENABLE TRIGGER trg_entities_mission_seq;
+      ALTER TABLE entities ENABLE TRIGGER trg_entities_assign_change_metadata;
       ALTER TABLE entities ENABLE TRIGGER trg_entities_infra_seq;
-      ALTER TABLE entities ENABLE TRIGGER trg_entities_version;
       ALTER TABLE entities ENABLE ALWAYS TRIGGER trg_entities_notify;
       ALTER TABLE missions ENABLE ALWAYS TRIGGER trg_missions_notify;
     `,
@@ -197,6 +196,7 @@ const bootstrapStatements = [
             COALESCE(properties->'opacity', '1.0'::jsonb)
         ) AS properties,
         version,
+        mission_change_seq,
         schema_version,
         origin_node
       FROM v_active_entities;

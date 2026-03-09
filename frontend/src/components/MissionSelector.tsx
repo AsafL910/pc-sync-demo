@@ -14,6 +14,12 @@ const NODE_DOMAIN = NODE_NAME.toLowerCase().replace(' ', '_');
 const DB_SYNC_URL = import.meta.env.VITE_DB_SYNC_URL || 'http://localhost:3001';
 const sc = StringCodec();
 
+function getPeerNodeName(nodeName: string): string {
+    if (nodeName === 'Node A') return 'node_b';
+    if (nodeName === 'Node B') return 'node_a';
+    return nodeName.toLowerCase().replace(' ', '_') === 'node_a' ? 'node_b' : 'node_a';
+}
+
 export const MissionSelector = ({ selectedId, onMissionChange, nc, createdMission }: MissionSelectorProps) => {
     const [missions, setMissions] = useState<MissionSummary[]>([]);
     const [loading, setLoading] = useState(true);
@@ -73,6 +79,8 @@ export const MissionSelector = ({ selectedId, onMissionChange, nc, createdMissio
         let cancelled = false;
         let retryTimer: ReturnType<typeof setTimeout> | null = null;
         const subs: ConsumerMessages[] = [];
+        const peerNodeName = getPeerNodeName(NODE_NAME);
+        const streamNames = ['MISSIONS', `MIRROR_MISSIONS_${peerNodeName.toUpperCase()}`];
 
         const clearResources = () => {
             subs.splice(0).forEach((sub) => sub.stop());
@@ -96,37 +104,51 @@ export const MissionSelector = ({ selectedId, onMissionChange, nc, createdMissio
             try {
                 const jsm = await nc.jetstreamManager({ domain: NODE_DOMAIN });
                 const js = nc.jetstream({ domain: NODE_DOMAIN });
+                let connectedStreams = 0;
 
-                const ci = await jsm.consumers.add('MISSIONS', {
-                    ack_policy: AckPolicy.Explicit,
-                    deliver_policy: DeliverPolicy.All,
-                });
+                for (const streamName of streamNames) {
+                    try {
+                        const ci = await jsm.consumers.add(streamName, {
+                            ack_policy: AckPolicy.Explicit,
+                            deliver_policy: DeliverPolicy.All,
+                        });
 
-                const consumer = await js.consumers.get('MISSIONS', ci.name);
-                const iter = await consumer.consume();
-                subs.push(iter);
-                console.log('[MissionSelector JetStream] Consuming from MISSIONS');
+                        const consumer = await js.consumers.get(streamName, ci.name);
+                        const iter = await consumer.consume();
+                        subs.push(iter);
+                        connectedStreams += 1;
+                        console.log(`[MissionSelector JetStream] Consuming from ${streamName}`);
 
-                setupAttemptRef.current = 0;
+                        (async () => {
+                            for await (const m of iter) {
+                                const msg = m as JsMsg;
+                                try {
+                                    const data = JSON.parse(sc.decode(msg.data)) as MissionCreatedMessage;
+                                    upsertMission({ id: data.id, name: data.name, created_at: data.created_at });
+                                    msg.ack();
+                                } catch (err) {
+                                    console.error(`[MissionSelector JetStream] Failed to parse ${streamName} message:`, err);
+                                    msg.ack();
+                                }
+                            }
 
-                (async () => {
-                    for await (const m of iter) {
-                        const msg = m as JsMsg;
-                        try {
-                            const data = JSON.parse(sc.decode(msg.data)) as MissionCreatedMessage;
-                            upsertMission({ id: data.id, name: data.name, created_at: data.created_at });
-                            msg.ack();
-                        } catch (err) {
-                            console.error('[MissionSelector JetStream] Failed to parse MISSIONS message:', err);
-                            msg.ack();
-                        }
+                            if (!cancelled) {
+                                setupAttemptRef.current += 1;
+                                scheduleRetry();
+                            }
+                        })();
+                    } catch (err: any) {
+                        console.error(`[MissionSelector JetStream] Setup error for ${streamName}:`, err.message);
                     }
+                }
 
-                    if (!cancelled) {
-                        setupAttemptRef.current += 1;
-                        scheduleRetry();
-                    }
-                })();
+                if (connectedStreams === streamNames.length) {
+                    setupAttemptRef.current = 0;
+                    return;
+                }
+
+                setupAttemptRef.current += 1;
+                scheduleRetry();
             } catch (err) {
                 if (cancelled) return;
                 console.error('[MissionSelector JetStream] Setup error:', err);

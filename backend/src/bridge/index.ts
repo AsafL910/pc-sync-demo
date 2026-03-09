@@ -15,7 +15,6 @@ const DB_NAME = process.env.DB_NAME || 'meshdb';
 
 const ENTITY_DELTA_SUBJECT = `mission.entities.delta.${NODE_NAME}`;
 const MISSION_DELTA_SUBJECT = `mission.lifecycle.${NODE_NAME}.created`;
-const MAX_PAYLOAD_SIZE = 500 * 1024;
 
 const sc = StringCodec();
 
@@ -87,54 +86,22 @@ async function startBridge() {
 
         try {
             if (msg.channel === 'entity_changes') {
-                const payload = JSON.parse(msg.payload);
-                const { entity_id, version, mission_id } = payload;
-                const msgId = `${entity_id}-${version}`;
-                const payloadStr = JSON.stringify(payload);
-                const sizeBytes = Buffer.byteLength(payloadStr, 'utf8');
-
-                let delta: EntityDelta;
-
-                if (sizeBytes > MAX_PAYLOAD_SIZE) {
-                    delta = {
-                        type: 'reload',
-                        mission_id,
-                    };
-                } else {
-                    const res = await pgClient.query(`
-                        SELECT 
-                            entity_id,
-                            mission_id,
-                            entity_type,
-                            ST_AsGeoJSON(geom)::jsonb as geometry,
-                            properties,
-                            version,
-                            schema_version,
-                            origin_node
-                        FROM v_map_render_layer
-                        WHERE entity_id = $1
-                    `, [entity_id]);
-
-                    if (res.rows.length === 0) {
-                        return;
-                    }
-
-                    const row = res.rows[0];
-                    delta = {
-                        type: 'update',
-                        mission_id: row.mission_id,
-                        entity_id: row.entity_id,
-                        entity_type: row.entity_type,
-                        geometry: row.geometry,
-                        properties: row.properties,
-                        version: row.version,
-                        schema_version: row.schema_version,
-                        origin_node: row.origin_node,
-                    };
+                const rawPayload = JSON.parse(msg.payload) as Omit<EntityDelta, 'type'>;
+                if (!rawPayload.mission_id || typeof rawPayload.last_change_seq !== 'number') {
+                    return;
                 }
 
-                await js.publish(ENTITY_DELTA_SUBJECT, sc.encode(JSON.stringify(delta)), { msgID: msgId });
-                console.log(`[Bridge ${NODE_NAME}] Published entity delta ${delta.type} for ${entity_id} v${version}`);
+                const payload: EntityDelta = {
+                    type: 'changed',
+                    mission_id: rawPayload.mission_id,
+                    last_change_seq: rawPayload.last_change_seq,
+                    origin_node: rawPayload.origin_node,
+                };
+
+                await js.publish(ENTITY_DELTA_SUBJECT, sc.encode(JSON.stringify(payload)), {
+                    msgID: `${payload.mission_id}-${payload.last_change_seq}`,
+                });
+                console.log(`[Bridge ${NODE_NAME}] Published mission pulse for ${payload.mission_id} seq ${payload.last_change_seq}`);
                 return;
             }
 

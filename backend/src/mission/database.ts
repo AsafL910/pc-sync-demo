@@ -1,11 +1,15 @@
 export {
+    EntityNotFoundError,
     MissionNotFoundError,
     MissionValidationError,
+    bumpEntityVersion,
     createMission,
     createSchema,
     getActiveEntities,
+    getEntityDeltaSince,
     getMapRenderLayer,
     getMissions,
     insertRandomEntity,
     setupPglogical,
+    softDeleteEntity,
 } from "./db/index.js";

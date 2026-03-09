@@ -14,6 +14,13 @@ export class MissionNotFoundError extends Error {
     }
 }
 
+export class EntityNotFoundError extends Error {
+    constructor(entityId: string) {
+        super(`Entity not found: ${entityId}`);
+        this.name = "EntityNotFoundError";
+    }
+}
+
 export interface CreatedMission {
     id: string;
     name: string;
@@ -40,6 +47,15 @@ function normalizeMissionName(name: string): string {
 
     if (normalized.length > 120) {
         throw new MissionValidationError("Mission name must be 120 characters or fewer");
+    }
+
+    return normalized;
+}
+
+function normalizeEntityId(entityId: string): string {
+    const normalized = entityId.trim();
+    if (!normalized) {
+        throw new MissionValidationError("entity_id is required");
     }
 
     return normalized;
@@ -113,5 +129,51 @@ export async function insertRandomEntity(missionId: string): Promise<CreatedEnti
             mission_id: normalizedMissionId,
             entity_id: result.rows[0].entity_id,
         };
+    });
+}
+
+export async function bumpEntityVersion(entityId: string): Promise<CreatedEntity> {
+    const normalizedEntityId = normalizeEntityId(entityId);
+
+    return withTransaction(async (client) => {
+        const result = await client.query<CreatedEntity>(
+            `
+                UPDATE entities
+                SET version = version
+                WHERE entity_id = $1
+                  AND is_deleted = false
+                RETURNING mission_id, entity_id
+            `,
+            [normalizedEntityId],
+        );
+
+        if (!result.rowCount) {
+            throw new EntityNotFoundError(normalizedEntityId);
+        }
+
+        return result.rows[0];
+    });
+}
+
+export async function softDeleteEntity(entityId: string): Promise<CreatedEntity> {
+    const normalizedEntityId = normalizeEntityId(entityId);
+
+    return withTransaction(async (client) => {
+        const result = await client.query<CreatedEntity>(
+            `
+                UPDATE entities
+                SET is_deleted = true
+                WHERE entity_id = $1
+                  AND is_deleted = false
+                RETURNING mission_id, entity_id
+            `,
+            [normalizedEntityId],
+        );
+
+        if (!result.rowCount) {
+            throw new EntityNotFoundError(normalizedEntityId);
+        }
+
+        return result.rows[0];
     });
 }

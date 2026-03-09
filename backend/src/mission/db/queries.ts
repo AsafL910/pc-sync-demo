@@ -13,8 +13,22 @@ export interface EntityRenderRow {
     geometry: unknown;
     properties: Record<string, unknown>;
     version: number;
+    mission_change_seq: number;
     schema_version: number;
     origin_node?: string;
+}
+
+export interface EntityDeltaRow {
+    entity_id: string;
+    mission_id: string;
+    entity_type: string;
+    geometry: unknown | null;
+    properties: Record<string, unknown>;
+    version: number;
+    mission_change_seq: number;
+    schema_version: number;
+    origin_node?: string;
+    is_deleted: boolean;
 }
 
 const entityProjection = `
@@ -24,6 +38,7 @@ const entityProjection = `
     ST_AsGeoJSON(geom)::jsonb as geometry,
     properties,
     version,
+    mission_change_seq,
     schema_version
 `;
 
@@ -42,6 +57,7 @@ export async function getActiveEntities(missionId: string): Promise<EntityRender
                 origin_node
             FROM v_map_render_layer
             WHERE mission_id = $1
+            ORDER BY mission_change_seq ASC, entity_id ASC
         `,
         [missionId],
     );
@@ -55,8 +71,35 @@ export async function getMapRenderLayer(missionId: string): Promise<EntityRender
                 ${entityProjection}
             FROM v_map_render_layer
             WHERE mission_id = $1
+            ORDER BY mission_change_seq ASC, entity_id ASC
         `,
         [missionId],
+    );
+    return result.rows;
+}
+
+export async function getEntityDeltaSince(missionId: string, sinceSeq: number): Promise<EntityDeltaRow[]> {
+    const result = await missionPool.query<EntityDeltaRow>(
+        `
+            SELECT
+                e.entity_id,
+                e.mission_id,
+                e.entity_type,
+                CASE WHEN e.is_deleted THEN NULL ELSE ST_AsGeoJSON(e.geom)::jsonb END AS geometry,
+                e.properties,
+                e.version,
+                e.mission_change_seq,
+                e.schema_version,
+                e.origin_node,
+                e.is_deleted
+            FROM entities e
+            LEFT JOIN missions m ON e.mission_id = m.id
+            WHERE e.mission_id = $1
+              AND e.mission_change_seq > $2
+              AND (m.deleted_at IS NULL OR e.is_deleted = true)
+            ORDER BY e.mission_change_seq ASC, e.entity_id ASC
+        `,
+        [missionId, sinceSeq],
     );
     return result.rows;
 }

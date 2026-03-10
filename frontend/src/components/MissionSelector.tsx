@@ -73,6 +73,13 @@ export const MissionSelector = ({ selectedId, onMissionChange, nc, createdMissio
         upsertMission(createdMission);
     }, [createdMission]);
 
+    // Auto-select first mission if none selected and missions exist
+    useEffect(() => {
+        if (missions.length > 0 && !selectedId) {
+            onMissionChange(missions[0].id);
+        }
+    }, [missions, selectedId, onMissionChange]);
+
     useEffect(() => {
         if (!nc) return;
 

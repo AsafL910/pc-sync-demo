@@ -52,7 +52,7 @@ export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId:
         selectedMissionIdRef.current = selectedMissionId;
     }, [selectedMissionId]);
 
-    const fetchEntities = useCallback(async (retries = 3): Promise<void> => {
+    const fetchEntities = useCallback(async (): Promise<void> => {
         if (!selectedMissionId) {
             setEntities([]);
             setLoading(false);
@@ -64,7 +64,8 @@ export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId:
         setLoading(true);
         setEntities([]);
 
-        for (let attempt = 0; attempt < retries; attempt++) {
+        const MAX_RETRIES = 15;
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
                 const res = await fetch(`${DB_SYNC_URL}/entities?mission_id=${encodeURIComponent(selectedMissionId)}`);
                 if (res.ok) {
@@ -82,9 +83,12 @@ export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId:
                 // service not ready yet
             }
 
-            if (attempt < retries - 1) {
-                await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt)));
+            if (selectedMissionIdRef.current !== selectedMissionId) {
+                return;
             }
+
+            const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
+            await new Promise(r => setTimeout(r, delay));
         }
 
         if (selectedMissionIdRef.current === selectedMissionId) {
@@ -111,10 +115,11 @@ export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId:
         }
 
         syncInFlightRef.current = true;
+        let retries = 0;
+        const MAX_REPLICATION_RETRIES = 10;
         try {
             while (pendingTargetSeqRef.current > lastSeenSeqRef.current) {
                 const sinceSeq = lastSeenSeqRef.current;
-                const desiredSeq = pendingTargetSeqRef.current;
                 const res = await fetch(`${DB_SYNC_URL}/entities/delta?mission_id=${encodeURIComponent(missionId)}&since_seq=${sinceSeq}`);
                 if (!res.ok) {
                     break;
@@ -127,7 +132,19 @@ export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId:
 
                 applyDeltaRows(rows);
                 const maxRowSeq = rows.reduce((max, row) => Math.max(max, row.mission_change_seq ?? 0), sinceSeq);
-                lastSeenSeqRef.current = Math.max(lastSeenSeqRef.current, desiredSeq, maxRowSeq);
+
+                if (maxRowSeq <= sinceSeq) {
+                    // DB hasn't caught up with replication yet — back off briefly
+                    retries++;
+                    if (retries >= MAX_REPLICATION_RETRIES) {
+                        break;
+                    }
+                    await new Promise(r => setTimeout(r, 150));
+                    continue;
+                }
+
+                retries = 0;
+                lastSeenSeqRef.current = maxRowSeq;
             }
         } finally {
             syncInFlightRef.current = false;
@@ -179,7 +196,7 @@ export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId:
                     try {
                         const ci = await jsm.consumers.add(streamName, {
                             ack_policy: AckPolicy.Explicit,
-                            deliver_policy: DeliverPolicy.All,
+                            deliver_policy: DeliverPolicy.New,
                         });
 
                         const consumer = await js.consumers.get(streamName, ci.name);

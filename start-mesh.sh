@@ -24,14 +24,20 @@ fi
 
 # 3) Cleanup for a brand new state
 echo "Cleaning up existing containers and volumes..."
-# We ignore errors here in case the projects don't exist yet
-docker compose -p node-a --env-file node-a/.env down -v || true
-docker compose -p node-b --env-file node-b/.env down -v || true
+docker compose -p node-a --env-file node-a/.env down -v --remove-orphans || true
+docker compose -p node-b --env-file node-b/.env down -v --remove-orphans || true
 
-# 4) Build + start
-echo "Building and starting full mesh (Node A + Node B)..."
-docker compose -p node-a --env-file node-a/.env up -d --build
-docker compose -p node-b --env-file node-b/.env up -d --build
+# 4) Build Phase (Common Images)
+# Both nodes use the same source code. Building Node A images first populates the cache.
+echo "=== Phase 1: Building Mesh Images ==="
+docker compose -p node-a --env-file node-a/.env build
+
+# 5) Start Phase
+echo "=== Phase 2: Starting Node A ==="
+docker compose -p node-a --env-file node-a/.env up -d --no-build
+
+echo "=== Phase 3: Starting Node B ==="
+docker compose -p node-b --env-file node-b/.env up -d --no-build
 
 # Source the frontend ports for output message
 source node-a/.env
@@ -43,4 +49,3 @@ echo ""
 echo "Distributed Mesh POC is now running!"
 echo "Node A Dashboard: http://localhost:${A_FRONTEND_HOST_PORT}"
 echo "Node B Dashboard: http://localhost:${B_FRONTEND_HOST_PORT}"
-echo "Run './test-resiliency.sh' to verify data sync and failover."

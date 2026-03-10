@@ -1,151 +1,84 @@
-asyncapi: 3.1.0
+asyncapi: 2.6.0
 info:
   title: Independent Nodes Mesh - NATS Contract
   version: 1.0.0
-  description: >
-    Standardized message interfaces for the vehicle edge computing cluster.
-
-    Provides schema for real-time sensor data and JetStream-backed safety
-    alerts.
-operations:
-  sensorGpsSub:
-    action: receive
-    channel:
-      $ref: '#/channels/sensor.gps'
-    summary: Subscribe to real-time GPS coordinates.
-  safetyAlertSub:
-    action: receive
-    channel:
-      $ref: '#/channels/alert.safety.node'
-    summary: Receive safety alerts from any node in the mesh.
-  entityDeltaSub:
-    action: receive
-    channel:
-      $ref: '#/channels/mission.entities.delta'
-    summary: Subscribe to entity delta updates.
 channels:
   sensor.gps:
-    address: sensor.gps
-    messages:
-      gpsData:
-        payload:
-          $ref: '#/components/schemas/GPSData'
-    description: High-frequency GPS telemetry data.
+    publish:
+      message:
+        $ref: '#/components/messages/GPSData'
   alert.safety.node:
-    address: 'alert.safety.{nodeName}.{alertType}'
-    parameters:
-      nodeName:
-        description: 'The source node that generated the alert (e.g., node_a, node_b).'
-      alertType:
-        description: 'The type of safety event (e.g., collision, system_failure).'
-    messages:
-      safetyAlert:
-        payload:
-          $ref: '#/components/schemas/Alert'
-    description: JetStream-backed safety alerts for critical status updates.
+    publish:
+      message:
+        $ref: '#/components/messages/Alert'
   mission.entities.delta:
-    address: mission.entities.delta
-    messages:
-      entityDelta:
-        payload:
-          $ref: '#/components/schemas/EntityDelta'
-    description: Delta updates for spatial entities.
+    publish:
+      message:
+        $ref: '#/components/messages/EntityDelta'
 components:
+  messages:
+    GPSData:
+      payload:
+        $ref: '#/components/schemas/GPSData'
+    Alert:
+      payload:
+        $ref: '#/components/schemas/Alert'
+    EntityDelta:
+      payload:
+        $ref: '#/components/schemas/EntityDelta'
   schemas:
     GPSData:
       type: object
       properties:
         node:
           type: string
-          description: Name of the publishing node.
-        mission_id:
-          type: string
-          description: UUID of the mission.
         lat:
           type: number
-          format: float
-          description: Latitude coordinate.
         lng:
           type: number
-          format: float
-          description: Longitude coordinate.
         timestamp:
           type: string
           format: date-time
-          description: ISO-8601 timestamp of data capture.
-      required:
-        - node
-        - mission_id
-        - lat
-        - lng
-        - timestamp
+      required: [node, lat, lng, timestamp]
     Alert:
       type: object
       properties:
         node:
           type: string
-          description: Name of the node that detected the event.
-        mission_id:
-          type: string
-          description: UUID of the mission.
         type:
           type: string
-          description: 'Category of the alert (e.g., collision).'
         severity:
           $ref: '#/components/schemas/AlertSeverity'
         message:
           type: string
-          description: Human-readable description of the alert.
-        data:
-          type: object
-          description: Additional context-specific JSON metadata.
         timestamp:
           type: string
           format: date-time
-          description: ISO-8601 timestamp of the event.
-      required:
-        - node
-        - mission_id
-        - type
-        - severity
-        - message
-        - timestamp
+        data:
+          $ref: '#/components/schemas/AlertData'
+      required: [node, type, severity, message, timestamp]
     EntityDelta:
       type: object
       properties:
         type:
-          type: string
-          enum:
-            - update
-            - reload
-          description: Type of delta. 'reload' forces the client to refetch via HTTP.
+          $ref: '#/components/schemas/DeltaType'
         mission_id:
           type: string
-          description: UUID of the mission this entity belongs to.
         entity_id:
           type: string
-          description: UUID of the entity.
-        entity_type:
-          type: string
-          description: Type of the entity (e.g., polygon, point).
-        geometry:
-          type: object
-          description: GeoJSON Geometry object.
-        properties:
-          type: object
-          description: Entity properties (e.g., color, opacity).
         version:
           type: integer
-          description: Entity version number.
-        schema_version:
+        last_change_seq:
           type: integer
-          description: Schema version.
-      required:
-        - type
+        origin_node:
+          type: string
+      required: [type, mission_id, entity_id, version, last_change_seq, origin_node]
     AlertSeverity:
       type: string
-      enum:
-        - low
-        - medium
-        - high
-      description: Criticality level for safety alerts.
+      enum: [low, medium, high]
+    DeltaType:
+      type: string
+      enum: [changed, reload]
+    AlertData:
+      type: object
+      additionalProperties: true

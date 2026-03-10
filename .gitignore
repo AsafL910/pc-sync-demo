@@ -1,4 +1,4 @@
-# Logs
+﻿# Logs
 logs
 *.log
 npm-debug.log*
@@ -31,3 +31,7 @@ build/
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Docker Compose injected env
+.env
+

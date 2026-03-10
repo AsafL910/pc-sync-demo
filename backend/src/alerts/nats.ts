@@ -85,7 +85,7 @@ export async function consumeAlerts(nc: NatsConnection, streamNames: string[]) {
                 for await (const msg of messages) {
                     try {
                         const data: Alert = JSON.parse(sc.decode(msg.data));
-                        console.log(`[${nodeName}] BACKEND LOG [ACK]: ${data.reservedType} from ${data.node} - ${data.message}`);
+                        console.log(`[${nodeName}] BACKEND LOG [ACK]: ${data.type} from ${data.node} - ${data.message}`);
                         msg.ack();
                     } catch (e) {
                         msg.nak();
@@ -107,6 +107,6 @@ export async function publishAlert(nc: NatsConnection, alert: Omit<Alert, 'times
         node: nodeName,
         timestamp: new Date().toISOString(),
     } as Alert;
-    await js.publish(`alert.safety.${nodeName}.${alert.reservedType}`, sc.encode(JSON.stringify(payload)));
+    await js.publish(`alert.safety.${nodeName}.${alert.type}`, sc.encode(JSON.stringify(payload)));
     return payload;
 }

@@ -1,0 +1,153 @@
+networks:
+  mesh-net:
+    external: true
+
+services:
+  postgres:
+    build: ./postgres
+    container_name: ${NODE_NAME}-postgres
+    environment:
+      POSTGRES_USER: ${MESH_DB_USER}
+      POSTGRES_PASSWORD: ${MESH_DB_PASS}
+      POSTGRES_DB: ${MESH_DB_NAME}
+    ports:
+      - "${POSTGRES_HOST_PORT}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - mesh-net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${MESH_DB_USER} -d ${MESH_DB_NAME}" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: ${NODE_NAME}-nats
+    command: [ "-c", "/etc/nats/nats.conf" ]
+    volumes:
+      - ./nats/nats-${NODE_ID}.conf:/etc/nats/nats.conf:ro
+      - nats_data:/data/jetstream
+    ports:
+      - "${NATS_CLIENT_HOST_PORT}:4222"
+      - "${NATS_CLUSTER_HOST_PORT}:7422"
+      - "${NATS_MONITOR_HOST_PORT}:8222"
+      - "${NATS_WS_HOST_PORT}:8080"
+    networks:
+      - mesh-net
+    restart: unless-stopped
+
+  mission_service:
+    build: ./backend
+    container_name: ${NODE_NAME}-mission_service
+    command: [ "npm", "run", "mission-service" ]
+    environment:
+      NODE_NAME: ${NODE_NAME}
+      DB_HOST: ${NODE_NAME}-postgres
+      DB_PORT: 5432
+      DB_USER: ${MESH_DB_USER}
+      DB_PASS: ${MESH_DB_PASS}
+      DB_NAME: ${MESH_DB_NAME}
+      PEER_DB_HOST: ${PEER_NODE_NAME}-postgres
+      PEER_DB_PORT: 5432
+      PEER_NODE_NAME: ${PEER_NODE_NAME}
+      PORT: ${MISSION_PORT}
+    ports:
+      - "${MISSION_HOST_PORT}:${MISSION_PORT}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mesh-net
+    restart: unless-stopped
+
+  bridge_service:
+    build: ./backend
+    container_name: ${NODE_NAME}-bridge_service
+    command: [ "npm", "run", "bridge-service" ]
+    environment:
+      NODE_NAME: ${NODE_NAME}
+      DB_HOST: ${NODE_NAME}-postgres
+      DB_PORT: 5432
+      DB_USER: ${MESH_DB_USER}
+      DB_PASS: ${MESH_DB_PASS}
+      DB_NAME: ${MESH_DB_NAME}
+      NATS_URL: nats://${NODE_NAME}-nats:4222
+      PEER_NODE_NAME: ${PEER_NODE_NAME}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    networks:
+      - mesh-net
+    restart: unless-stopped
+
+  gps_service:
+    build: ./backend
+    container_name: ${NODE_NAME}-gps_service
+    command: [ "npm", "run", "gps-service" ]
+    environment:
+      NODE_NAME: ${NODE_NAME}
+      NATS_URL: nats://${NODE_NAME}-nats:4222
+      PORT: ${GPS_PORT}
+    ports:
+      - "${GPS_HOST_PORT}:${GPS_PORT}"
+    depends_on:
+      - nats
+    networks:
+      - mesh-net
+    restart: unless-stopped
+
+  alerts_service:
+    build: ./backend
+    container_name: ${NODE_NAME}-alerts_service
+    command: [ "npm", "run", "alerts-service" ]
+    environment:
+      NODE_NAME: ${NODE_NAME}
+      NATS_URL: nats://${NODE_NAME}-nats:4222
+      PEER_NODE_NAME: ${PEER_NODE_NAME}
+      PORT: ${ALERTS_PORT}
+    ports:
+      - "${ALERTS_HOST_PORT}:${ALERTS_PORT}"
+    depends_on:
+      - nats
+    networks:
+      - mesh-net
+    restart: unless-stopped
+
+  gps_sim:
+    build: ./backend
+    container_name: ${NODE_NAME}-gps_sim
+    command: [ "npm", "run", "gps-sim" ]
+    environment:
+      NODE_NAME: ${NODE_NAME}
+      NATS_URL: nats://${NODE_NAME}-nats:4222
+      DB_SYNC_URL: http://${NODE_NAME}-mission_service:${MISSION_PORT}
+    depends_on:
+      - nats
+    networks:
+      - mesh-net
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: ${NODE_NAME}-frontend
+    environment:
+      VITE_DB_SYNC_URL: "http://localhost:${MISSION_HOST_PORT}"
+      VITE_NATS_URL: "ws://localhost:${NATS_WS_HOST_PORT}"
+      VITE_NODE_NAME: "${NODE_LABEL}"
+    ports:
+      - "${FRONTEND_HOST_PORT}:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - mesh-net
+
+volumes:
+  pgdata:
+    name: ${NODE_NAME}_pgdata
+  nats_data:
+    name: ${NODE_NAME}_nats_data

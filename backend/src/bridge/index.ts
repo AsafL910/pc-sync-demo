@@ -1,6 +1,6 @@
 import pg from 'pg';
 import { connect, StringCodec } from 'nats';
-import { EntityDelta } from '../shared/types.js';
+import { EntityDelta, DeltaType } from '../shared/types.js';
 
 const { Client } = pg;
 
@@ -23,7 +23,11 @@ async function ensureStream(jsm: any, name: string, config: any, alreadyExistsMe
         await jsm.streams.add(config);
         console.log(alreadyExistsMessage);
     } catch (err) {
-        if (!(err as Error).message.includes('already exists')) {
+        const msg = (err as Error).message;
+        if (msg.includes('stream name already in use with a different configuration')) {
+            await jsm.streams.update(config.name, config);
+            console.log(`[Bridge] Updated configuration for stream ${config.name}`);
+        } else if (!msg.includes('already exists')) {
             throw err;
         }
     }
@@ -40,7 +44,7 @@ async function startBridge() {
     await ensureStream(jsm, 'ENTITIES', {
         name: 'ENTITIES',
         subjects: [ENTITY_DELTA_SUBJECT],
-        duplicate_window: 5000000000,
+        duplicate_window: 100000000,
         max_msgs: 10000,
     }, `[Bridge ${NODE_NAME}] Created/Updated local JetStream ENTITIES.`);
 
@@ -92,14 +96,16 @@ async function startBridge() {
                 }
 
                 const payload: EntityDelta = {
-                    type: 'changed',
+                    type: DeltaType.CHANGED,
                     mission_id: rawPayload.mission_id,
+                    entity_id: rawPayload.entity_id,
+                    version: rawPayload.version,
                     last_change_seq: rawPayload.last_change_seq,
                     origin_node: rawPayload.origin_node,
                 };
 
                 await js.publish(ENTITY_DELTA_SUBJECT, sc.encode(JSON.stringify(payload)), {
-                    msgID: `${payload.mission_id}-${payload.last_change_seq}`,
+                    msgID: `${payload.entity_id}-${payload.version}`,
                 });
                 console.log(`[Bridge ${NODE_NAME}] Published mission pulse for ${payload.mission_id} seq ${payload.last_change_seq}`);
                 return;

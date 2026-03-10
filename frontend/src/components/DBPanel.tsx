@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { EntityDelta } from '../generated/EntityDelta';
+import EntityDelta from '../generated/EntityDelta';
 import { StringCodec, AckPolicy, DeliverPolicy, JsMsg, ConsumerMessages } from 'nats.ws';
 
 const NODE_NAME = import.meta.env.VITE_NODE_NAME || 'Node A';
@@ -167,10 +167,6 @@ export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId:
                 return;
             }
 
-            if (payload.last_change_seq <= lastSeenSeqRef.current) {
-                return;
-            }
-
             await syncMissionDelta(payload.mission_id, payload.last_change_seq);
         };
 
@@ -183,7 +179,7 @@ export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId:
                     try {
                         const ci = await jsm.consumers.add(streamName, {
                             ack_policy: AckPolicy.Explicit,
-                            deliver_policy: DeliverPolicy.New,
+                            deliver_policy: DeliverPolicy.All,
                         });
 
                         const consumer = await js.consumers.get(streamName, ci.name);

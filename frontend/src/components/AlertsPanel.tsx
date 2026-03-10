@@ -134,7 +134,7 @@ export const AlertsPanel = ({ nc }: AlertsPanelProps) => {
                         <div className="feed-item alert" key={i}>
                             <div className="feed-item-header">
                                 <span className="feed-item-source">
-                                    ⚠️ {m.reservedType?.toUpperCase()} — {m.severity}
+                                    ⚠️ {m.type?.toUpperCase()} — {m.severity}
                                 </span>
                                 <span className="feed-item-time">
                                     seq: {m.seq} | {m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : ''}

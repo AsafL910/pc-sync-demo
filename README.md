@@ -1,4 +1,4 @@
-# Distributed Mesh POC
+﻿# Distributed Mesh POC
 
 This project is a Proof of Concept (POC) for a distributed mesh system simulating vehicle edge computers. It demonstrates a highly resilient architecture that allows two nodes (Node A and Node B) to operate independently, sync data bi-directionally, and communicate in real-time.
 
@@ -12,10 +12,11 @@ This project is a Proof of Concept (POC) for a distributed mesh system simulatin
 ## Project Structure
 ```text
 demo/
-├── node-a/                 # Configuration for Node A
-│   └── docker-compose.yml
-├── node-b/                 # Configuration for Node B
-│   └── docker-compose.yml
+├── docker-compose.yml       # Single merged compose for both nodes
+├── node-a/                 # Node A values (similar to Helm values)
+│   └── values.env
+├── node-b/                 # Node B values (similar to Helm values)
+│   └── values.env
 ├── frontend/               # React Dashboard (Vite + TypeScript)
 ├── backend/                # Node.js microservices (GPS Simulator, DB Sync)
 ├── postgres/               # Custom PostgreSQL image with pglogical setup scripts
@@ -50,14 +51,14 @@ If you prefer to start components manually:
    docker network create mesh-net
    ```
 
-2. **Start Node A**:
+2. **Inject node values into compose (.env)**:
    ```bash
-   cd node-a && docker compose up -d
+   cat node-a/values.env node-b/values.env > .env
    ```
 
-3. **Start Node B**:
+3. **Start the full mesh**:
    ```bash
-   cd node-b && docker compose up -d
+   docker compose up -d --build
    ```
 
 ## Features
@@ -95,3 +96,5 @@ npm run asyncapi:generate:frontend
 
 ## Testing Resiliency
 ...
+
+

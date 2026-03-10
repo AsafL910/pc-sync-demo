@@ -24,7 +24,6 @@ function generateGPS(): GpsData {
 
     return {
         node: NODE_NAME,
-        mission_id: 'pending', // Overwritten in start()
         lat: parseFloat(base.lat.toFixed(6)),
         lng: parseFloat(base.lng.toFixed(6)),
         timestamp: new Date().toISOString(),
@@ -50,50 +49,25 @@ async function start() {
     const nc = await connectNats();
     const js = nc.jetstream();
 
-    const DB_SYNC_URL = process.env.DB_SYNC_URL || 'http://mission_service_a:3000';
-    let missionId = 'default-mission';
-
-    const fetchMission = async () => {
-        try {
-            const res = await fetch(`${DB_SYNC_URL}/missions`);
-            const missions = await res.json() as any[];
-            if (missions.length > 0) {
-                missionId = missions[0].id;
-                console.log(`[${NODE_NAME}] GPS Simulator using mission: ${missionId}`);
-                return true;
-            }
-        } catch (e) {
-            // silent retry
-        }
-        return false;
-    };
-
-    // Retry until a mission is found
-    while (!(await fetchMission())) {
-        console.log(`[${NODE_NAME}] Waiting for a mission to be created...`);
-        await new Promise(r => setTimeout(r, 5000));
-    }
-
     let tickCount = 0;
 
     const gpsInterval = setInterval(() => {
         const gps = generateGPS();
-        (gps as any).mission_id = missionId;
+        // mission_id removed from gps
         nc.publish('sensor.gps', sc.encode(JSON.stringify(gps)));
         tickCount++;
 
         if (tickCount % 30 === 0) {
             const alert: ReservedAlert = {
                 node: NODE_NAME,
-                mission_id: missionId,
-                reservedType: 'collision',
+                type: 'collision',
                 severity: Math.random() > 0.5 ? AlertSeverity.HIGH : AlertSeverity.MEDIUM,
                 message: `Potential collision detected at (${gps.lat}, ${gps.lng})`,
                 data: { lat: gps.lat, lng: gps.lng } as any,
                 timestamp: new Date().toISOString(),
             };
             // Corrected subject to match service: alert.safety.${node}.${type}
-            js.publish(`alert.safety.${NODE_NAME}.collision`, sc.encode(JSON.stringify(alert)))
+            js.publish(`alert.safety.${NODE_NAME}.${alert.type}`, sc.encode(JSON.stringify(alert)))
                 .then(() => console.log(`[${NODE_NAME}] Published safety alert`))
                 .catch(e => console.error(`[${NODE_NAME}] Alert publish error:`, e.message));
         }

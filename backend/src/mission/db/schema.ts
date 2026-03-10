@@ -5,8 +5,8 @@ import { withTransaction } from "./pool.js";
 const DEFAULT_MISSION_ID = "00000000-0000-0000-0000-000000000001";
 
 const bootstrapStatements = [
-    "CREATE EXTENSION IF NOT EXISTS pgcrypto;",
-    `
+  "CREATE EXTENSION IF NOT EXISTS pgcrypto;",
+  `
       CREATE TABLE IF NOT EXISTS missions (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           name TEXT NOT NULL,
@@ -15,7 +15,7 @@ const bootstrapStatements = [
           deleted_at TIMESTAMPTZ
       );
     `,
-    `
+  `
       CREATE TABLE IF NOT EXISTS infra (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           name TEXT NOT NULL,
@@ -24,7 +24,7 @@ const bootstrapStatements = [
           deleted_at TIMESTAMPTZ
       );
     `,
-    `
+  `
       CREATE TABLE IF NOT EXISTS entities (
           entity_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           mission_id UUID REFERENCES missions(id),
@@ -50,14 +50,14 @@ const bootstrapStatements = [
           )
       );
     `,
-    "ALTER TABLE entities ADD COLUMN IF NOT EXISTS mission_change_seq BIGINT NOT NULL DEFAULT 0;",
-    "CREATE INDEX IF NOT EXISTS idx_spatial_entities ON entities USING GIST (geom);",
-    `
+  "ALTER TABLE entities ADD COLUMN IF NOT EXISTS mission_change_seq BIGINT NOT NULL DEFAULT 0;",
+  "CREATE INDEX IF NOT EXISTS idx_spatial_entities ON entities USING GIST (geom);",
+  `
       INSERT INTO missions (id, name)
       VALUES ($1, 'Default Operations')
       ON CONFLICT (id) DO NOTHING;
     `,
-    `
+  `
       CREATE OR REPLACE FUNCTION assign_entity_change_metadata() RETURNS trigger AS $$
       DECLARE
         target_mission_id UUID;
@@ -90,7 +90,7 @@ const bootstrapStatements = [
       FOR EACH ROW
       EXECUTE FUNCTION assign_entity_change_metadata();
     `,
-    `
+  `
       CREATE OR REPLACE FUNCTION bump_infra_seq() RETURNS trigger AS $$
       DECLARE
         target_id UUID;
@@ -109,7 +109,7 @@ const bootstrapStatements = [
       FOR EACH ROW
       EXECUTE FUNCTION bump_infra_seq();
     `,
-    `
+  `
       CREATE OR REPLACE FUNCTION notify_entity_change() RETURNS trigger AS $$
       DECLARE
         payload TEXT;
@@ -117,7 +117,10 @@ const bootstrapStatements = [
       BEGIN
         row_data := COALESCE(NEW, OLD);
         payload := json_build_object(
+          'type', 'changed',
           'mission_id', row_data.mission_id,
+          'entity_id', row_data.entity_id,
+          'version', row_data.version,
           'last_change_seq', row_data.mission_change_seq,
           'origin_node', row_data.origin_node
         )::text;
@@ -132,7 +135,7 @@ const bootstrapStatements = [
       FOR EACH ROW
       EXECUTE FUNCTION notify_entity_change();
     `,
-    `
+  `
       CREATE OR REPLACE FUNCTION notify_mission_change() RETURNS trigger AS $mission$
       DECLARE
         payload TEXT;
@@ -165,15 +168,15 @@ const bootstrapStatements = [
       FOR EACH ROW
       EXECUTE FUNCTION notify_mission_change();
     `,
-    `
+  `
       ALTER TABLE entities ENABLE TRIGGER trg_entities_assign_change_metadata;
       ALTER TABLE entities ENABLE TRIGGER trg_entities_infra_seq;
       ALTER TABLE entities ENABLE ALWAYS TRIGGER trg_entities_notify;
       ALTER TABLE missions ENABLE ALWAYS TRIGGER trg_missions_notify;
     `,
-    "DROP VIEW IF EXISTS v_map_render_layer;",
-    "DROP VIEW IF EXISTS v_active_entities;",
-    `
+  "DROP VIEW IF EXISTS v_map_render_layer;",
+  "DROP VIEW IF EXISTS v_active_entities;",
+  `
       CREATE VIEW v_active_entities AS
       SELECT e.*
       FROM entities e
@@ -183,7 +186,7 @@ const bootstrapStatements = [
         AND (i.deleted_at IS NULL OR e.infra_id IS NULL)
         AND e.is_deleted = false;
     `,
-    `
+  `
       CREATE VIEW v_map_render_layer AS
       SELECT
         entity_id,
@@ -204,20 +207,20 @@ const bootstrapStatements = [
 ];
 
 async function executeBootstrapStatement(client: PoolClient, statement: string): Promise<void> {
-    if (statement.includes("VALUES ($1, 'Default Operations')")) {
-        await client.query(statement, [DEFAULT_MISSION_ID]);
-        return;
-    }
+  if (statement.includes("VALUES ($1, 'Default Operations')")) {
+    await client.query(statement, [DEFAULT_MISSION_ID]);
+    return;
+  }
 
-    await client.query(statement);
+  await client.query(statement);
 }
 
 export async function createSchema(): Promise<void> {
-    await withTransaction(async (client) => {
-        for (const statement of bootstrapStatements) {
-            await executeBootstrapStatement(client, statement);
-        }
-    });
+  await withTransaction(async (client) => {
+    for (const statement of bootstrapStatements) {
+      await executeBootstrapStatement(client, statement);
+    }
+  });
 
-    console.log(`[${missionDbConfig.nodeName}] Schema created successfully`);
+  console.log(`[${missionDbConfig.nodeName}] Schema created successfully`);
 }

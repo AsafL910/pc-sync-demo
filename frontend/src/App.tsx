@@ -69,6 +69,11 @@ const App = () => {
                 </div>
             </header>
 
+            {!selectedMissionId && (
+                <div className="mission-warning-banner">
+                    ⚠️ No mission selected. Please select or <strong>Create Mission</strong> to start adding data.
+                </div>
+            )}
             <div className="panels-top">
                 <GPSPanel nc={nc} />
                 <AlertsPanel nc={nc} />
@@ -103,28 +108,32 @@ const App = () => {
                 <button className="btn btn-outline" onClick={publishAlert}>
                     🚨 Send Alert
                 </button>
-                <button className="btn btn-primary" onClick={async () => {
-                    if (!selectedMissionId) {
-                        showToast('Select a mission before creating an entity');
-                        return;
-                    }
-                    const DB_SYNC_URL = import.meta.env.VITE_DB_SYNC_URL || 'http://localhost:3001';
-                    try {
-                        const res = await fetch(`${DB_SYNC_URL}/entities`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ mission_id: selectedMissionId })
-                        });
-                        if (res.ok) {
-                            showToast('Entity added to mission');
+                <button
+                    className={`btn ${!selectedMissionId ? 'btn-disabled' : 'btn-primary'}`}
+                    onClick={async () => {
+                        if (!selectedMissionId) {
+                            showToast('❌ Select a mission before creating an entity');
                             return;
                         }
-                        const error = await res.json().catch(() => null);
-                        showToast(`Error: ${error?.error || 'Failed to create entity'}`);
-                    } catch (e: any) {
-                        showToast(`Error: ${e.message}`);
-                    }
-                }}>
+                        const DB_SYNC_URL = import.meta.env.VITE_DB_SYNC_URL || 'http://localhost:3001';
+                        try {
+                            const res = await fetch(`${DB_SYNC_URL}/entities`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ mission_id: selectedMissionId })
+                            });
+                            if (res.ok) {
+                                showToast('📍 Entity added to mission');
+                                return;
+                            }
+                            const error = await res.json().catch(() => null);
+                            showToast(`❌ Error: ${error?.error || 'Failed to create entity'}`);
+                        } catch (e: any) {
+                            showToast(`❌ Error: ${e.message}`);
+                        }
+                    }}
+                    disabled={!selectedMissionId}
+                >
                     📍 Add Spatial Entity
                 </button>
                 <span className="action-status">

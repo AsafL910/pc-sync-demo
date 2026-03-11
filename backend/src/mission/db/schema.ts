@@ -2,7 +2,6 @@ import { PoolClient } from "pg";
 import { missionDbConfig } from "./config.js";
 import { withTransaction } from "./pool.js";
 
-const DEFAULT_MISSION_ID = "00000000-0000-0000-0000-000000000001";
 
 const bootstrapStatements = [
   "CREATE EXTENSION IF NOT EXISTS pgcrypto;",
@@ -52,11 +51,6 @@ const bootstrapStatements = [
     `,
   "ALTER TABLE entities ADD COLUMN IF NOT EXISTS mission_change_seq BIGINT NOT NULL DEFAULT 0;",
   "CREATE INDEX IF NOT EXISTS idx_spatial_entities ON entities USING GIST (geom);",
-  `
-      INSERT INTO missions (id, name)
-      VALUES ($1, 'Default Operations')
-      ON CONFLICT (id) DO NOTHING;
-    `,
   `
       CREATE OR REPLACE FUNCTION assign_entity_change_metadata() RETURNS trigger AS $$
       DECLARE
@@ -207,11 +201,6 @@ const bootstrapStatements = [
 ];
 
 async function executeBootstrapStatement(client: PoolClient, statement: string): Promise<void> {
-  if (statement.includes("VALUES ($1, 'Default Operations')")) {
-    await client.query(statement, [DEFAULT_MISSION_ID]);
-    return;
-  }
-
   await client.query(statement);
 }
 

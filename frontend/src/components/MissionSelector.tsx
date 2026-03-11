@@ -37,7 +37,13 @@ export const MissionSelector = ({ selectedId, onMissionChange, nc, createdMissio
         const currentSelectedId = selectedIdRef.current;
         const selectedStillExists = currentSelectedId ? sorted.some((mission) => mission.id === currentSelectedId) : false;
         if (sorted.length > 0 && (!currentSelectedId || !selectedStillExists)) {
-            onMissionChange(sorted[0].id);
+            // Only auto-select if we specifically don't have a valid selection anymore
+            // but don't force select the first one if the list was just refreshed and selection is still valid
+            if (!currentSelectedId || !selectedStillExists) {
+                onMissionChange(sorted[0].id);
+            }
+        } else if (sorted.length === 0 && currentSelectedId) {
+            onMissionChange('');
         }
     };
 
@@ -183,9 +189,16 @@ export const MissionSelector = ({ selectedId, onMissionChange, nc, createdMissio
                 onChange={(e) => onMissionChange(e.target.value)}
                 className="select"
             >
-                {missions.map((mission) => (
-                    <option key={mission.id} value={mission.id}>{mission.name}</option>
-                ))}
+                {missions.length === 0 ? (
+                    <option value="" disabled>No missions available</option>
+                ) : (
+                    <>
+                        <option value="" disabled>Select a mission</option>
+                        {missions.map((mission) => (
+                            <option key={mission.id} value={mission.id}>{mission.name}</option>
+                        ))}
+                    </>
+                )}
             </select>
             <button className="btn-refresh" onClick={() => void fetchMissions()} title="Refresh missions">Refresh</button>
         </div>

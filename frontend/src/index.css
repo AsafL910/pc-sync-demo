@@ -468,6 +468,34 @@ body,
   font-family: var(--font-mono);
 }
 
+.mission-warning-banner {
+  background: rgba(245, 158, 11, 0.1);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+  color: var(--accent-amber);
+  padding: 8px 24px;
+  font-size: 13px;
+  text-align: center;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+.btn-disabled {
+  opacity: 0.5;
+  cursor: not-allowed !important;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  box-shadow: none !important;
+}
+
 /* Empty state */
 .empty-state {
   display: flex;

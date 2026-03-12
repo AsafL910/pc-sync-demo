@@ -1,0 +1,24 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Node A",
+      "Group": "Mesh",
+      "Host": "node-a-postgres",
+      "Port": 5432,
+      "MaintenanceDB": "meshdb",
+      "Username": "mesh",
+      "SSLMode": "disable",
+      "PassFile": "/tmp/pgpassfile"
+    },
+    "2": {
+      "Name": "Node B",
+      "Group": "Mesh",
+      "Host": "node-b-postgres",
+      "Port": 5432,
+      "MaintenanceDB": "meshdb",
+      "Username": "mesh",
+      "SSLMode": "disable",
+      "PassFile": "/tmp/pgpassfile"
+    }
+  }
+}

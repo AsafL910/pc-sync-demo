@@ -1,0 +1,27 @@
+networks:
+  mesh-net:
+    external: true
+
+services:
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: mesh-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: mesh_pass
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+    entrypoint: >
+      /bin/sh -c "
+      echo 'node-a-postgres:5432:meshdb:mesh:mesh_pass' > /tmp/pgpassfile;
+      echo 'node-b-postgres:5432:meshdb:mesh:mesh_pass' >> /tmp/pgpassfile;
+      chmod 600 /tmp/pgpassfile;
+      /entrypoint.sh
+      "
+    networks:
+      - mesh-net
+    restart: unless-stopped

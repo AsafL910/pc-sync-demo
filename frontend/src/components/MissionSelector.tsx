@@ -1,25 +1,29 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { MissionSummary } from '../types/nats';
 import { useMissionStore } from '../store/useMissionStore';
-import { useNATSContext, DB_SYNC_URL } from '../context/NATSContext';
+import { DB_SYNC_URL } from '../context/NATSContext';
+import { useNATSActions } from '../hooks/useNATSActions';
 
 export const MissionSelector = () => {
-    const { missions, selectedMissionId, setSelectedMissionId, setMissions, addMission } = useMissionStore();
-    const { subscribeMissions } = useNATSContext();
+    const missions = useMissionStore(s => s.missions);
+    const selectedMissionId = useMissionStore(s => s.selectedMissionId);
+    const { setSelectedMissionId, setMissions, addMission } = useMissionStore(s => s.actions);
+    const { subscribeMissions } = useNATSActions();
 
-    const fetchMissions = async () => {
+    const fetchMissions = useCallback(async () => {
         try {
+            console.log("[MissionSelector] Fetching baseline missions...");
             const res = await fetch(`${DB_SYNC_URL}/missions`);
             const data = await res.json() as MissionSummary[];
             setMissions(data);
         } catch (e) {
             console.error('Failed to fetch missions:', e);
         }
-    };
+    }, [setMissions]);
 
     useEffect(() => {
         void fetchMissions();
-    }, []);
+    }, [fetchMissions]);
 
     useEffect(() => {
         const unsubscribe = subscribeMissions((data) => {
@@ -58,7 +62,6 @@ export const MissionSelector = () => {
                     </>
                 )}
             </select>
-            <button className="btn-refresh" onClick={() => void fetchMissions()} title="Refresh missions">Refresh</button>
         </div>
     );
 };

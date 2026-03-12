@@ -1,16 +1,10 @@
-import { create } from 'zustand';
-import { useUIStore } from './useUIStore';
+import { useUIActions } from './useUIActions';
 import { DB_SYNC_URL } from '../context/NATSContext';
 
-interface EntityState {
-    createEntity: (missionId: string) => Promise<boolean>;
-    updateEntityVersion: (entityId: string) => Promise<boolean>;
-    deleteEntity: (entityId: string) => Promise<boolean>;
-}
+export const useEntityActions = () => {
+    const { showToast } = useUIActions();
 
-export const useEntityStore = create<EntityState>(() => ({
-    createEntity: async (missionId) => {
-        const { showToast } = useUIStore.getState();
+    const createEntity = async (missionId: string): Promise<boolean> => {
         try {
             const res = await fetch(`${DB_SYNC_URL}/entities`, {
                 method: 'POST',
@@ -28,9 +22,9 @@ export const useEntityStore = create<EntityState>(() => ({
             showToast(`❌ Error: ${e.message}`);
             return false;
         }
-    },
-    updateEntityVersion: async (entityId) => {
-        const { showToast } = useUIStore.getState();
+    };
+
+    const updateEntityVersion = async (entityId: string): Promise<boolean> => {
         try {
             const res = await fetch(`${DB_SYNC_URL}/entities/${entityId}/version`, { method: 'PATCH' });
             if (res.ok) return true;
@@ -41,9 +35,9 @@ export const useEntityStore = create<EntityState>(() => ({
             showToast(`❌ Error: ${e.message}`);
             return false;
         }
-    },
-    deleteEntity: async (entityId) => {
-        const { showToast } = useUIStore.getState();
+    };
+
+    const deleteEntity = async (entityId: string): Promise<boolean> => {
         try {
             const res = await fetch(`${DB_SYNC_URL}/entities/${entityId}`, { method: 'DELETE' });
             if (res.ok) return true;
@@ -54,5 +48,11 @@ export const useEntityStore = create<EntityState>(() => ({
             showToast(`❌ Error: ${e.message}`);
             return false;
         }
-    },
-}));
+    };
+
+    return {
+        createEntity,
+        updateEntityVersion,
+        deleteEntity
+    };
+};

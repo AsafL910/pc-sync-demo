@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { StatusDot } from './StatusDot';
 import { GPSMessage } from '../types/nats';
 import { useNATSContext } from '../context/NATSContext';
+import { useNATSActions } from '../hooks/useNATSActions';
 
 export const GPSPanel = () => {
     const [messages, setMessages] = useState<GPSMessage[]>([]);
-    const { connected, subscribeGps } = useNATSContext();
+    const { connected } = useNATSContext();
+    const { subscribeGps } = useNATSActions();
     const maxMessages = 50;
 
     useEffect(() => {

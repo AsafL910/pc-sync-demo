@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { buildLocalDsn, buildPeerDsn, missionDbConfig } from "./config.js";
 import { withClient } from "./pool.js";
+const safeId = (id: string) => id.replace(/-/g, "_");
 
 const replicationTables = ["missions", "infra", "entities"] as const;
 const SUBSCRIPTION_RETRY_MS = 15000;
@@ -16,7 +17,7 @@ function isAlreadyExistsError(error: unknown): boolean {
 async function ensureNode(client: PoolClient): Promise<void> {
     const nodeExists = await client.query(
         "SELECT 1 FROM pglogical.node WHERE node_name = $1",
-        [missionDbConfig.nodeName],
+        [safeId(missionDbConfig.nodeName)],
     );
 
     if (nodeExists.rowCount) {
@@ -25,7 +26,7 @@ async function ensureNode(client: PoolClient): Promise<void> {
 
     await client.query(
         "SELECT pglogical.create_node(node_name := $1, dsn := $2)",
-        [missionDbConfig.nodeName, buildLocalDsn()],
+        [safeId(missionDbConfig.nodeName), buildLocalDsn()],
     );
     console.log(`[${missionDbConfig.nodeName}] pglogical node created`);
 }
@@ -74,12 +75,12 @@ async function ensureReplicationTables(client: PoolClient): Promise<void> {
 }
 
 async function attemptSubscription(): Promise<boolean> {
-    const subscriptionName = `sub_${missionDbConfig.nodeName}_to_${missionDbConfig.peerNodeName}`;
+    const subscriptionName = `sub_${safeId(missionDbConfig.nodeName)}_to_${safeId(missionDbConfig.peerNodeName)}`;
 
     return withClient(async (client) => {
         const nodeInfo = await client.query(
             "SELECT 1 FROM pglogical.node WHERE node_name = $1",
-            [missionDbConfig.nodeName],
+            [safeId(missionDbConfig.nodeName)],
         );
         if (!nodeInfo.rowCount) {
             console.log(`[${missionDbConfig.nodeName}] Local pglogical node not ready yet, skipping sub attempt`);

@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useMissionStore } from '../store/useMissionStore';
-import { useEntityStore } from '../store/useEntityStore';
-import { useNATSContext, DB_SYNC_URL } from '../context/NATSContext';
+import { useEntityActions } from '../hooks/useEntityActions';
+import { DB_SYNC_URL } from '../context/NATSContext';
+import { useNATSActions } from '../hooks/useNATSActions';
 
 interface EntityRow {
     entity_id: string;
@@ -30,9 +31,9 @@ function applyEntityDeltaRows(previous: EntityRow[], rows: EntityDeltaRow[]): En
 }
 
 export const DBPanel = () => {
-    const { selectedMissionId } = useMissionStore();
-    const { updateEntityVersion, deleteEntity } = useEntityStore();
-    const { subscribeEntityDeltas } = useNATSContext();
+    const selectedMissionId = useMissionStore(s => s.selectedMissionId);
+    const { updateEntityVersion, deleteEntity } = useEntityActions();
+    const { subscribeEntityDeltas } = useNATSActions();
 
     const [entities, setEntities] = useState<EntityRow[]>([]);
     const [loading, setLoading] = useState<boolean>(true);

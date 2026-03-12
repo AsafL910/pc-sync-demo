@@ -1,7 +1,9 @@
 import { useMissionStore } from './store/useMissionStore';
-import { useEntityStore } from './store/useEntityStore';
 import { useUIStore } from './store/useUIStore';
 import { useNATSContext } from './context/NATSContext';
+import { useMissionActions } from './hooks/useMissionActions';
+import { useEntityActions } from './hooks/useEntityActions';
+import { useNATSActions } from './hooks/useNATSActions';
 import { StatusDot } from './components/StatusDot';
 import { DBPanel } from './components/DBPanel';
 import { GPSPanel } from './components/GPSPanel';
@@ -12,10 +14,12 @@ const NODE_NAME = import.meta.env.VITE_NODE_NAME || 'Node A';
 const NATS_URL = import.meta.env.VITE_NATS_URL || 'ws://localhost:8081';
 
 const App = () => {
-    const { toast } = useUIStore();
-    const { selectedMissionId, createMission } = useMissionStore();
-    const { createEntity } = useEntityStore();
-    const { connected, publishManualAlert } = useNATSContext();
+    const toast = useUIStore(s => s.toast);
+    const selectedMissionId = useMissionStore(s => s.selectedMissionId);
+    const { createMission } = useMissionActions();
+    const { createEntity } = useEntityActions();
+    const { connected } = useNATSContext();
+    const { publishManualAlert } = useNATSActions();
 
     return (
         <div className="app">

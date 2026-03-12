@@ -145,6 +145,34 @@ services:
       - /app/node_modules
     networks:
       - mesh-net
+  nats-dashboard:
+    image: mdawar/nats-dashboard
+    container_name: ${NODE_NAME}-nats-dashboard
+    ports:
+      - "${NATS_DASHBOARD_PORT}:80"
+    environment:
+      - NATS_MONITOR_URL=http://${NODE_NAME}-nats:8222
+    networks:
+      - mesh-net
+    depends_on:
+      - nats
+    restart: unless-stopped
+  nats-ui:
+    image: ghcr.io/gastbob40/nats-ui:latest
+    container_name: ${NODE_NAME}-nats-ui
+    ports:
+      - "${NATS_UI_PORT}:3000"
+    depends_on:
+      - nats
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    environment:
+      - NODE_ENV=production
+
 
 volumes:
   pgdata:

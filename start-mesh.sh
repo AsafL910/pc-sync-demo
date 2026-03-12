@@ -27,17 +27,12 @@ echo "Cleaning up existing containers and volumes..."
 docker compose -p node-a --env-file node-a/.env down -v --remove-orphans || true
 docker compose -p node-b --env-file node-b/.env down -v --remove-orphans || true
 
-# 4) Build Phase (Common Images)
-# Both nodes use the same source code. Building Node A images first populates the cache.
-echo "=== Phase 1: Building Mesh Images ==="
-docker compose -p node-a --env-file node-a/.env build
-
-# 5) Start Phase
+# 4) Start Phase
 echo "=== Phase 2: Starting Node A ==="
-docker compose -p node-a --env-file node-a/.env up -d --no-build
+docker compose -p node-a --env-file node-a/.env up -d --build
 
 echo "=== Phase 3: Starting Node B ==="
-docker compose -p node-b --env-file node-b/.env up -d --no-build
+docker compose -p node-b --env-file node-b/.env up -d --build
 
 # Source the frontend ports for output message
 source node-a/.env

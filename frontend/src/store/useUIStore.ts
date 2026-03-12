@@ -2,15 +2,10 @@ import { create } from 'zustand';
 
 interface UIState {
     toast: string | null;
-    showToast: (msg: string, duration?: number) => void;
+    setToast: (msg: string | null) => void;
 }
 
-export const useUIStore = create<UIState>((set, get) => ({
+export const useUIStore = create<UIState>((set) => ({
     toast: null,
-    showToast: (msg, duration = 3000) => {
-        set({ toast: msg });
-        setTimeout(() => {
-            if (get().toast === msg) set({ toast: null });
-        }, duration);
-    },
+    setToast: (msg) => set({ toast: msg }),
 }));

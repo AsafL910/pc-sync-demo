@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { StatusDot } from './StatusDot';
 import { SafetyAlert } from '../types/nats';
-import { useNATSContext } from '../context/NATSContext';
+import { useNATSActions } from '../hooks/useNATSActions';
 
 export const AlertsPanel = () => {
     const [alerts, setAlerts] = useState<SafetyAlert[]>([]);
-    const { subscribeAlerts } = useNATSContext();
+    const { subscribeAlerts } = useNATSActions();
     const [isSubscribed, setIsSubscribed] = useState(false);
 
     useEffect(() => {

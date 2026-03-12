@@ -1,17 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import EntityDelta from '../generated/EntityDelta';
-import { StringCodec, AckPolicy, DeliverPolicy, JsMsg, ConsumerMessages } from 'nats.ws';
-
-const NODE_NAME = import.meta.env.VITE_NODE_NAME || 'Node A';
-const NODE_DOMAIN = NODE_NAME.toLowerCase().replace(' ', '_');
-const DB_SYNC_URL = import.meta.env.VITE_DB_SYNC_URL || 'http://localhost:3001';
-const sc = StringCodec();
-
-const getPeerNodeName = (nodeName: string) => {
-    if (nodeName === 'Node A') return 'node_b';
-    if (nodeName === 'Node B') return 'node_a';
-    return nodeName.toLowerCase().replace(' ', '_') === 'node_a' ? 'node_b' : 'node_a';
-};
+import { useMissionStore } from '../store/useMissionStore';
+import { useEntityStore } from '../store/useEntityStore';
+import { useNATSContext, DB_SYNC_URL } from '../context/NATSContext';
 
 interface EntityRow {
     entity_id: string;
@@ -39,7 +29,11 @@ function applyEntityDeltaRows(previous: EntityRow[], rows: EntityDeltaRow[]): En
     return [...updatedRows, ...untouched];
 }
 
-export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId: string | null }) => {
+export const DBPanel = () => {
+    const { selectedMissionId } = useMissionStore();
+    const { updateEntityVersion, deleteEntity } = useEntityStore();
+    const { subscribeEntityDeltas } = useNATSContext();
+
     const [entities, setEntities] = useState<EntityRow[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [busyEntityId, setBusyEntityId] = useState<string | null>(null);
@@ -52,93 +46,36 @@ export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId:
         selectedMissionIdRef.current = selectedMissionId;
     }, [selectedMissionId]);
 
-    const fetchEntities = useCallback(async (): Promise<void> => {
-        if (!selectedMissionId) {
-            setEntities([]);
-            setLoading(false);
-            lastSeenSeqRef.current = 0;
-            pendingTargetSeqRef.current = 0;
-            return;
-        }
-
-        setLoading(true);
-        setEntities([]);
-
-        const MAX_RETRIES = 15;
-        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-            try {
-                const res = await fetch(`${DB_SYNC_URL}/entities?mission_id=${encodeURIComponent(selectedMissionId)}`);
-                if (res.ok) {
-                    const missionEntities = await res.json() as EntityRow[];
-                    if (selectedMissionIdRef.current === selectedMissionId) {
-                        setEntities(missionEntities);
-                        const maxSeenSeq = missionEntities.reduce((max, entity) => Math.max(max, entity.mission_change_seq ?? 0), 0);
-                        lastSeenSeqRef.current = maxSeenSeq;
-                        pendingTargetSeqRef.current = maxSeenSeq;
-                        setLoading(false);
-                    }
-                    return;
-                }
-            } catch (e) {
-                // service not ready yet
-            }
-
-            if (selectedMissionIdRef.current !== selectedMissionId) {
-                return;
-            }
-
-            const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
-            await new Promise(r => setTimeout(r, delay));
-        }
-
-        if (selectedMissionIdRef.current === selectedMissionId) {
-            setLoading(false);
-        }
-    }, [selectedMissionId]);
-
-    useEffect(() => {
-        void fetchEntities();
-    }, [fetchEntities]);
-
-    const applyDeltaRows = useCallback((rows: EntityDeltaRow[]) => {
-        if (rows.length === 0) {
-            return;
-        }
-
-        setEntities((previous) => applyEntityDeltaRows(previous, rows));
-    }, []);
-
     const syncMissionDelta = useCallback(async (missionId: string, targetSeq: number) => {
+        if (missionId !== selectedMissionIdRef.current) return;
+
         pendingTargetSeqRef.current = Math.max(pendingTargetSeqRef.current, targetSeq);
-        if (syncInFlightRef.current) {
-            return;
-        }
+
+        // Only gate on sync in flight. The 'loading' gate is handled by the callers
+        // to avoid circular dependency loops.
+        if (syncInFlightRef.current) return;
 
         syncInFlightRef.current = true;
         let retries = 0;
         const MAX_REPLICATION_RETRIES = 10;
         try {
-            while (pendingTargetSeqRef.current > lastSeenSeqRef.current) {
+            while (pendingTargetSeqRef.current > lastSeenSeqRef.current && missionId === selectedMissionIdRef.current) {
                 const sinceSeq = lastSeenSeqRef.current;
                 const res = await fetch(`${DB_SYNC_URL}/entities/delta?mission_id=${encodeURIComponent(missionId)}&since_seq=${sinceSeq}`);
-                if (!res.ok) {
-                    break;
-                }
+                if (!res.ok) break;
 
                 const rows = await res.json() as EntityDeltaRow[];
-                if (selectedMissionIdRef.current !== missionId) {
-                    break;
+                if (selectedMissionIdRef.current !== missionId) break;
+
+                if (rows.length > 0) {
+                    setEntities((previous) => applyEntityDeltaRows(previous, rows));
                 }
 
-                applyDeltaRows(rows);
                 const maxRowSeq = rows.reduce((max, row) => Math.max(max, row.mission_change_seq ?? 0), sinceSeq);
 
                 if (maxRowSeq <= sinceSeq) {
-                    // DB hasn't caught up with replication yet — back off briefly
                     retries++;
-                    if (retries >= MAX_REPLICATION_RETRIES) {
-                        break;
-                    }
+                    if (retries >= MAX_REPLICATION_RETRIES) break;
                     await new Promise(r => setTimeout(r, 150));
                     continue;
                 }
@@ -149,89 +86,90 @@ export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId:
         } finally {
             syncInFlightRef.current = false;
         }
-    }, [applyDeltaRows]);
-
-    const mutateEntity = useCallback(async (entityId: string, method: 'PATCH' | 'DELETE', path: string) => {
-        setBusyEntityId(entityId);
-        try {
-            const res = await fetch(`${DB_SYNC_URL}${path}`, { method });
-            if (!res.ok) {
-                const error = await res.json().catch(() => null);
-                throw new Error(error?.error || `Failed to ${method === 'PATCH' ? 'update' : 'delete'} entity`);
-            }
-        } finally {
-            setBusyEntityId((current) => current === entityId ? null : current);
-        }
-    }, []);
-
-    const bumpVersion = useCallback(async (entityId: string) => {
-        await mutateEntity(entityId, 'PATCH', `/entities/${entityId}/version`);
-    }, [mutateEntity]);
-
-    const softDelete = useCallback(async (entityId: string) => {
-        await mutateEntity(entityId, 'DELETE', `/entities/${entityId}`);
-    }, [mutateEntity]);
+    }, [selectedMissionId]);
 
     useEffect(() => {
-        if (!nc || !selectedMissionId) return;
-        const iters: ConsumerMessages[] = [];
-        const peerNodeName = getPeerNodeName(NODE_NAME);
-        const streamNames = ['ENTITIES', `MIRROR_ENTITIES_${peerNodeName.toUpperCase()}`];
+        let isCancelled = false;
 
-        const applyPulse = async (payload: EntityDelta) => {
-            const activeMissionId = selectedMissionIdRef.current;
-            if (!activeMissionId || payload.type !== 'changed' || payload.mission_id !== activeMissionId) {
+        const fetchMissions = async () => {
+            if (!selectedMissionId) {
+                setEntities([]);
+                setLoading(false);
+                lastSeenSeqRef.current = 0;
+                pendingTargetSeqRef.current = 0;
                 return;
             }
 
-            await syncMissionDelta(payload.mission_id, payload.last_change_seq);
-        };
+            setLoading(true);
+            // Reset sequence markers for the new mission context
+            lastSeenSeqRef.current = 0;
+            // Note: we don't reset pendingTargetSeqRef here because NATS updates 
+            // might have already arrived while we were starting up.
 
-        const setupJetStream = async () => {
-            try {
-                const jsm = await nc.jetstreamManager({ domain: NODE_DOMAIN });
-                const js = nc.jetstream({ domain: NODE_DOMAIN });
+            const MAX_RETRIES = 15;
+            for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                if (isCancelled) return;
+                try {
+                    const res = await fetch(`${DB_SYNC_URL}/entities?mission_id=${encodeURIComponent(selectedMissionId)}`);
+                    if (res.ok) {
+                        const missionEntities = await res.json() as EntityRow[];
+                        if (isCancelled) return;
 
-                for (const streamName of streamNames) {
-                    try {
-                        const ci = await jsm.consumers.add(streamName, {
-                            ack_policy: AckPolicy.Explicit,
-                            deliver_policy: DeliverPolicy.New,
-                        });
+                        const maxSeenSeq = missionEntities.reduce((max, entity) => Math.max(max, entity.mission_change_seq ?? 0), 0);
 
-                        const consumer = await js.consumers.get(streamName, ci.name);
-                        const iter = await consumer.consume();
-                        iters.push(iter);
-                        console.log(`[DBPanel JetStream] Consuming from ${streamName} for mission ${selectedMissionId}`);
+                        // Safety: Only apply baseline if we haven't already synced past it via a very fast NATS pulse
+                        if (maxSeenSeq >= lastSeenSeqRef.current) {
+                            setEntities(missionEntities);
+                            lastSeenSeqRef.current = maxSeenSeq;
+                        }
 
-                        (async () => {
-                            for await (const m of iter) {
-                                const msg = m as JsMsg;
-                                try {
-                                    const payload = JSON.parse(sc.decode(msg.data)) as EntityDelta;
-                                    await applyPulse(payload);
-                                    msg.ack();
-                                } catch (e) {
-                                    console.error(`Failed to parse delta pulse from ${streamName}:`, e);
-                                    msg.ack();
-                                }
-                            }
-                        })();
-                    } catch (err: any) {
-                        console.warn(`[DBPanel JetStream] Consumer failed for ${streamName}:`, err.message);
+                        setLoading(false);
+                        // Trigger catch-up sync for anything that was queued in pendingTargetSeqRef while we were loading
+                        void syncMissionDelta(selectedMissionId, pendingTargetSeqRef.current);
+                        return;
                     }
-                }
-            } catch (err) {
-                console.error('[DBPanel JetStream] Setup error:', err);
+                } catch (e) { /* ignore */ }
+
+                const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
+                await new Promise(r => setTimeout(r, delay));
             }
+
+            if (!isCancelled) setLoading(false);
         };
 
-        void setupJetStream();
+        void fetchMissions();
+        return () => { isCancelled = true; };
+    }, [selectedMissionId]);
 
-        return () => {
-            iters.forEach(iter => iter.stop());
-        };
-    }, [nc, selectedMissionId, syncMissionDelta]);
+    const handleBumpVersion = async (entityId: string) => {
+        setBusyEntityId(entityId);
+        await updateEntityVersion(entityId);
+        setBusyEntityId(null);
+    };
+
+    const handleDelete = async (entityId: string) => {
+        setBusyEntityId(entityId);
+        await deleteEntity(entityId);
+        setBusyEntityId(null);
+    };
+
+    useEffect(() => {
+        if (!selectedMissionId) return;
+
+        const unsubscribe = subscribeEntityDeltas(async (payload) => {
+            if (payload.type === 'changed' && payload.mission_id === selectedMissionId) {
+                const targetSeq = payload.last_change_seq;
+                pendingTargetSeqRef.current = Math.max(pendingTargetSeqRef.current, targetSeq);
+
+                // Use 'loading' state to gate live updates to prevent overwriting the initial baseline
+                if (!loading && targetSeq > lastSeenSeqRef.current) {
+                    await syncMissionDelta(payload.mission_id, targetSeq);
+                }
+            }
+        });
+
+        return unsubscribe;
+    }, [selectedMissionId, subscribeEntityDeltas, syncMissionDelta, loading]);
 
     return (
         <div className="panel" style={{ gridColumn: 'span 2' }}>
@@ -266,7 +204,6 @@ export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId:
                         <tbody>
                             {entities.slice(0, 50).map((e) => {
                                 const isBusy = busyEntityId === e.entity_id;
-
                                 return (
                                     <tr key={e.entity_id}>
                                         <td title={e.entity_id}>{e.entity_id?.slice(0, 8)}...</td>
@@ -304,10 +241,10 @@ export const DBPanel = ({ nc, selectedMissionId }: { nc: any, selectedMissionId:
                                         </td>
                                         <td>
                                             <div style={{ display: 'flex', gap: '8px' }}>
-                                                <button className="btn btn-outline" disabled={isBusy} onClick={() => void bumpVersion(e.entity_id)}>
+                                                <button className="btn btn-outline" disabled={isBusy} onClick={() => void handleBumpVersion(e.entity_id)}>
                                                     {isBusy ? '...' : 'Update'}
                                                 </button>
-                                                <button className="btn btn-outline" disabled={isBusy} onClick={() => void softDelete(e.entity_id)}>
+                                                <button className="btn btn-outline" disabled={isBusy} onClick={() => void handleDelete(e.entity_id)}>
                                                     Delete
                                                 </button>
                                             </div>

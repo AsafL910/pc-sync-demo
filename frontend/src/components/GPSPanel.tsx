@@ -1,30 +1,19 @@
 import { useState, useEffect } from 'react';
-import { StringCodec } from 'nats.ws';
 import { StatusDot } from './StatusDot';
-import { GPSPanelProps, GPSMessage } from '../types/nats';
+import { GPSMessage } from '../types/nats';
+import { useNATSContext } from '../context/NATSContext';
 
-const sc = StringCodec();
-
-export const GPSPanel = ({ nc }: GPSPanelProps) => {
+export const GPSPanel = () => {
     const [messages, setMessages] = useState<GPSMessage[]>([]);
+    const { connected, subscribeGps } = useNATSContext();
     const maxMessages = 50;
 
     useEffect(() => {
-        if (!nc) return;
-        const sub = nc.subscribe('sensor.gps');
-        const processMessages = async () => {
-            for await (const m of sub) {
-                try {
-                    const data = JSON.parse(sc.decode(m.data)) as GPSMessage;
-                    setMessages((prev) => [{ ...data, node: data.node || 'unknown' }, ...prev].slice(0, maxMessages));
-                } catch (err) { /* ignore */ }
-            }
-        };
-        processMessages();
-        return () => {
-            sub.unsubscribe();
-        };
-    }, [nc]);
+        const unsubscribe = subscribeGps((data) => {
+            setMessages((prev) => [data, ...prev].slice(0, maxMessages));
+        });
+        return unsubscribe;
+    }, [subscribeGps]);
 
     return (
         <div className="panel">
@@ -32,9 +21,9 @@ export const GPSPanel = ({ nc }: GPSPanelProps) => {
                 <span className="panel-title">
                     <span className="panel-icon">📡</span> Live GPS Feed
                 </span>
-                <span className={`panel-badge ${nc ? 'badge-green' : 'badge-red'}`}>
-                    <StatusDot online={!!nc} />
-                    {nc ? 'LIVE' : 'OFFLINE'}
+                <span className={`panel-badge ${connected ? 'badge-green' : 'badge-red'}`}>
+                    <StatusDot online={connected} />
+                    {connected ? 'LIVE' : 'OFFLINE'}
                 </span>
             </div>
             <div className="panel-body">

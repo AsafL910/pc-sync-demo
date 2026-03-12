@@ -161,12 +161,12 @@ const bootstrapStatements = [
       AFTER INSERT OR UPDATE ON missions
       FOR EACH ROW
       EXECUTE FUNCTION notify_mission_change();
-    `,
-  `
+
+      ALTER TABLE missions ENABLE ALWAYS TRIGGER trg_missions_notify;
+
       ALTER TABLE entities ENABLE TRIGGER trg_entities_assign_change_metadata;
       ALTER TABLE entities ENABLE TRIGGER trg_entities_infra_seq;
       ALTER TABLE entities ENABLE ALWAYS TRIGGER trg_entities_notify;
-      ALTER TABLE missions ENABLE ALWAYS TRIGGER trg_missions_notify;
     `,
   "DROP VIEW IF EXISTS v_map_render_layer;",
   "DROP VIEW IF EXISTS v_active_entities;",

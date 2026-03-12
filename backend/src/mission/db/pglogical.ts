@@ -96,10 +96,8 @@ async function attemptSubscription(): Promise<boolean> {
 
         const currentStatus = statusResult.rows[0]?.status;
         if (currentStatus === "down") {
-            console.log(`[${missionDbConfig.nodeName}] Subscription ${subscriptionName} is down, dropping and recreating it`);
-            await client.query("SELECT pglogical.drop_subscription($1, true)", [subscriptionName]).catch((error: Error) => {
-                console.log(`[${missionDbConfig.nodeName}] Drop subscription note: ${error.message}`);
-            });
+            console.log(`[${missionDbConfig.nodeName}] Subscription ${subscriptionName} is down, letting pglogical retry...`);
+            return false;
         }
 
         const subExists = await client.query(
@@ -116,7 +114,7 @@ async function attemptSubscription(): Promise<boolean> {
                     subscription_name := $1,
                     provider_dsn := $2,
                     replication_sets := ARRAY['mesh_replication'],
-                    synchronize_data := false,
+                    synchronize_data := true,
                     forward_origins := '{}',
                     apply_delay := '0 seconds'::interval
                 )`,

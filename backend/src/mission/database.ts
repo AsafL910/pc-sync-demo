@@ -12,4 +12,6 @@ export {
     insertRandomEntity,
     setupPglogical,
     softDeleteEntity,
+    getActiveMission,
+    setActiveMission,
 } from "./db/index.js";

@@ -12,6 +12,8 @@ import {
     getMissions,
     insertRandomEntity,
     softDeleteEntity,
+    getActiveMission,
+    setActiveMission,
 } from './database.js';
 
 function handleMissionError(nodeName: string, scope: string, error: unknown, res: Response): void {
@@ -68,6 +70,25 @@ export function setupMissionApp(): Express {
             res.status(201).json(result);
         } catch (error) {
             handleMissionError(nodeName, 'Create mission error', error, res);
+        }
+    });
+
+    app.get('/missions/active', async (req, res) => {
+        try {
+            const result = await getActiveMission();
+            res.json(result);
+        } catch (error) {
+            handleMissionError(nodeName, 'Get active mission error', error, res);
+        }
+    });
+
+    app.put('/missions/active', async (req, res) => {
+        try {
+            const { mission_id } = req.body;
+            await setActiveMission(mission_id || null);
+            res.status(200).json({ mission_id: mission_id || null });
+        } catch (error) {
+            handleMissionError(nodeName, 'Set active mission error', error, res);
         }
     });
 

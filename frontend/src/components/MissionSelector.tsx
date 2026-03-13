@@ -3,12 +3,18 @@ import { MissionSummary } from '../types/nats';
 import { useMissionStore } from '../store/useMissionStore';
 import { DB_SYNC_URL } from '../context/NATSContext';
 import { useNATSActions } from '../hooks/useNATSActions';
+import { useMissionActions } from '../hooks/useMissionActions';
 
 export const MissionSelector = () => {
     const missions = useMissionStore(s => s.missions);
     const selectedMissionId = useMissionStore(s => s.selectedMissionId);
     const { setSelectedMissionId, setMissions, addMission } = useMissionStore(s => s.actions);
     const { subscribeMissions } = useNATSActions();
+    const { fetchActiveMission, setActiveMissionDb } = useMissionActions();
+
+    useEffect(() => {
+        void fetchActiveMission();
+    }, [fetchActiveMission]);
 
     const fetchMissions = useCallback(async () => {
         try {
@@ -27,6 +33,12 @@ export const MissionSelector = () => {
 
     useEffect(() => {
         const unsubscribe = subscribeMissions((data) => {
+            if (data.type === 'active_mission_changed' || data.mission_id !== undefined) {
+                if (data.mission_id) {
+                    setSelectedMissionId(data.mission_id);
+                }
+                return;
+            }
             const missionData: MissionSummary = { id: data.id, name: data.name, created_at: data.created_at };
             addMission(missionData);
         }, () => {
@@ -35,12 +47,6 @@ export const MissionSelector = () => {
         return unsubscribe;
     }, [subscribeMissions, addMission]);
 
-    // Auto-select first mission ONLY if none selected and missions exist
-    useEffect(() => {
-        if (missions.length > 0 && !selectedMissionId) {
-            setSelectedMissionId(missions[0].id);
-        }
-    }, [missions, selectedMissionId, setSelectedMissionId]);
 
     return (
         <div className="mission-selector">
@@ -48,7 +54,7 @@ export const MissionSelector = () => {
             <select
                 id="mission-select"
                 value={selectedMissionId || ''}
-                onChange={(e) => setSelectedMissionId(e.target.value)}
+                onChange={(e) => setActiveMissionDb(e.target.value)}
                 className="select"
             >
                 {missions.length === 0 ? (

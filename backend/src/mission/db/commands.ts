@@ -177,3 +177,29 @@ export async function softDeleteEntity(entityId: string): Promise<CreatedEntity>
         return result.rows[0];
     });
 }
+
+export async function setActiveMission(missionId: string | null): Promise<void> {
+    return withTransaction(async (client) => {
+        if (missionId) {
+            const missionCheck = await client.query(
+                "SELECT id FROM missions WHERE id = $1 AND deleted_at IS NULL",
+                [missionId]
+            );
+            if (!missionCheck.rowCount) {
+                throw new MissionNotFoundError(missionId);
+            }
+        }
+
+        await client.query(
+            `
+                INSERT INTO active_mission (id, mission_id, updated_at)
+                VALUES (1, $1, NOW())
+                ON CONFLICT (id) DO UPDATE
+                SET mission_id = EXCLUDED.mission_id,
+                    updated_at = NOW()
+            `,
+            [missionId]
+        );
+    });
+}
+

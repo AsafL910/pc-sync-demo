@@ -24,6 +24,13 @@ const bootstrapStatements = [
       );
     `,
   `
+      CREATE TABLE IF NOT EXISTS active_mission (
+          id INT PRIMARY KEY CHECK (id = 1),
+          mission_id UUID REFERENCES missions(id) ON DELETE SET NULL,
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `,
+  `
       CREATE TABLE IF NOT EXISTS entities (
           entity_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           mission_id UUID REFERENCES missions(id),
@@ -167,6 +174,33 @@ const bootstrapStatements = [
       ALTER TABLE entities ENABLE TRIGGER trg_entities_assign_change_metadata;
       ALTER TABLE entities ENABLE TRIGGER trg_entities_infra_seq;
       ALTER TABLE entities ENABLE ALWAYS TRIGGER trg_entities_notify;
+    `,
+  `
+      CREATE OR REPLACE FUNCTION notify_active_mission_change() RETURNS trigger AS $$
+      DECLARE
+        payload TEXT;
+      BEGIN
+        IF TG_OP = 'UPDATE' AND NEW.mission_id IS NOT DISTINCT FROM OLD.mission_id THEN
+          RETURN NEW;
+        END IF;
+
+        payload := json_build_object(
+          'type', 'active_mission_changed',
+          'mission_id', NEW.mission_id,
+          'timestamp', NEW.updated_at
+        )::text;
+        PERFORM pg_notify('active_mission_changes', payload);
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trg_active_mission_notify ON active_mission;
+      CREATE TRIGGER trg_active_mission_notify
+      AFTER INSERT OR UPDATE ON active_mission
+      FOR EACH ROW
+      EXECUTE FUNCTION notify_active_mission_change();
+      
+      ALTER TABLE active_mission ENABLE ALWAYS TRIGGER trg_active_mission_notify;
     `,
   "DROP VIEW IF EXISTS v_map_render_layer;",
   "DROP VIEW IF EXISTS v_active_entities;",

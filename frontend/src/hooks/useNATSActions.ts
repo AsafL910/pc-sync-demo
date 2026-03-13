@@ -10,7 +10,8 @@ export const useNATSActions = () => {
     const subscribeToJetStream = useCallback((
         streamNames: string[],
         cb: (data: any, msg?: JsMsg) => void,
-        onReady?: () => void
+        onReady?: () => void,
+        deliverPolicy: DeliverPolicy = DeliverPolicy.All
     ) => {
         if (!nc) return () => { };
         let cancelled = false;
@@ -28,7 +29,7 @@ export const useNATSActions = () => {
                     for (const streamName of streamNames) {
                         const ci = await jsm.consumers.add(streamName, {
                             ack_policy: AckPolicy.Explicit,
-                            deliver_policy: DeliverPolicy.All,
+                            deliver_policy: deliverPolicy,
                         });
                         const consumer = await js.consumers.get(streamName, ci.name);
                         const iter = await consumer.consume();

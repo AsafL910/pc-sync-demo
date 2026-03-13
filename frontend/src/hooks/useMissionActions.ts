@@ -7,6 +7,35 @@ export const useMissionActions = () => {
     const { showToast } = useUIActions();
     const { setSelectedMissionId, setCreatedMission } = useMissionStore((state) => state.actions);
 
+    const fetchActiveMission = async () => {
+        try {
+            const res = await fetch(`${DB_SYNC_URL}/missions/active`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.mission_id) {
+                    setSelectedMissionId(data.mission_id);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to fetch active mission:', e);
+        }
+    };
+
+    const setActiveMissionDb = async (missionId: string) => {
+        try {
+            const res = await fetch(`${DB_SYNC_URL}/missions/active`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mission_id: missionId })
+            });
+            if (res.ok) {
+                setSelectedMissionId(missionId);
+            }
+        } catch (e) {
+            console.error('Failed to set active mission:', e);
+        }
+    };
+
     const createMission = async (name: string): Promise<MissionSummary | null> => {
         try {
             const res = await fetch(`${DB_SYNC_URL}/missions`, {
@@ -17,7 +46,7 @@ export const useMissionActions = () => {
             if (res.ok) {
                 const data = await res.json() as MissionSummary;
                 setCreatedMission(data);
-                setSelectedMissionId(data.id);
+                await setActiveMissionDb(data.id);
                 showToast(`✅ Mission "${data.name}" created`);
                 return data;
             }
@@ -30,5 +59,5 @@ export const useMissionActions = () => {
         }
     };
 
-    return { createMission };
+    return { createMission, fetchActiveMission, setActiveMissionDb };
 };

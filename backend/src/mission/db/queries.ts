@@ -49,6 +49,13 @@ export async function getMissions(): Promise<MissionSummaryRow[]> {
     return result.rows;
 }
 
+export async function getActiveMission(): Promise<{ mission_id: string | null }> {
+    const result = await missionPool.query(
+        "SELECT mission_id FROM active_mission WHERE id = 1"
+    );
+    return { mission_id: result.rows[0]?.mission_id || null };
+}
+
 export async function getActiveEntities(missionId: string): Promise<EntityRenderRow[]> {
     const result = await missionPool.query<EntityRenderRow>(
         `

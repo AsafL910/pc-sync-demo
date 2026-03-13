@@ -3,7 +3,7 @@ import { buildLocalDsn, buildPeerDsn, missionDbConfig } from "./config.js";
 import { withClient } from "./pool.js";
 const safeId = (id: string) => id.replace(/-/g, "_");
 
-const replicationTables = ["missions", "infra", "entities"] as const;
+const replicationTables = ["missions", "infra", "entities", "active_mission"] as const;
 const SUBSCRIPTION_RETRY_MS = 15000;
 
 function isAlreadyExistsError(error: unknown): boolean {

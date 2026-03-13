@@ -1,6 +1,6 @@
 export { createSchema } from "./schema.js";
 export { setupPglogical } from "./pglogical.js";
-export { getMissions, getActiveEntities, getMapRenderLayer, getEntityDeltaSince } from "./queries.js";
+export { getMissions, getActiveEntities, getMapRenderLayer, getEntityDeltaSince, getActiveMission } from "./queries.js";
 export {
     EntityNotFoundError,
     MissionNotFoundError,
@@ -9,4 +9,5 @@ export {
     createMission,
     insertRandomEntity,
     softDeleteEntity,
+    setActiveMission,
 } from "./commands.js";

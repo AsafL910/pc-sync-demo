@@ -15,6 +15,7 @@ const DB_NAME = process.env.DB_NAME || 'meshdb';
 
 const ENTITY_DELTA_SUBJECT = `mission.entities.delta.${NODE_NAME}`;
 const MISSION_DELTA_SUBJECT = `mission.lifecycle.${NODE_NAME}.created`;
+const ACTIVE_MISSION_SUBJECT = `mission.lifecycle.${NODE_NAME}.active_changed`;
 
 const sc = StringCodec();
 
@@ -129,6 +130,16 @@ async function startBridge() {
                     msgID: `mission-${payload.id}`,
                 });
                 console.log(`[Bridge ${NODE_NAME}] Published mission update for ${payload.id}`);
+                return;
+            }
+
+            if (msg.channel === 'active_mission_changes') {
+                const payload = JSON.parse(msg.payload);
+                await js.publish(ACTIVE_MISSION_SUBJECT, sc.encode(JSON.stringify(payload)), {
+                    msgID: `active-mission-${payload.mission_id}-${new Date(payload.timestamp).getTime()}`,
+                });
+                console.log(`[Bridge ${NODE_NAME}] Published active mission update: ${payload.mission_id}`);
+                return;
             }
         } catch (err) {
             console.error(`[Bridge ${NODE_NAME}] Error processing ${msg.channel}:`, err);
@@ -137,7 +148,8 @@ async function startBridge() {
 
     await pgClient.query('LISTEN entity_changes');
     await pgClient.query('LISTEN mission_changes');
-    console.log(`[Bridge ${NODE_NAME}] Listening for entity_changes and mission_changes...`);
+    await pgClient.query('LISTEN active_mission_changes');
+    console.log(`[Bridge ${NODE_NAME}] Listening for entity_changes, mission_changes, and active_mission_changes...`);
 
     process.on('SIGINT', async () => {
         await pgClient.end();
